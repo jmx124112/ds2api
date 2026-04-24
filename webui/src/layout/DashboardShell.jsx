@@ -25,11 +25,20 @@ import ProxyManagerContainer from '../features/proxy/ProxyManagerContainer'
 import LanguageToggle from '../components/LanguageToggle'
 import { useI18n } from '../i18n'
 
+const EMPTY_CALL_STATS = { total_calls: 0, success_calls: 0, failed_calls: 0 }
+
+function formatCallCount(value) {
+    const num = Number(value || 0)
+    if (!Number.isFinite(num)) return '0'
+    return num.toLocaleString()
+}
+
 export default function DashboardShell({ token, onLogout, config, fetchConfig, showMessage, message, onForceLogout, isVercel }) {
     const { t } = useI18n()
     const location = useLocation()
     const navigate = useNavigate()
     const [sidebarOpen, setSidebarOpen] = useState(false)
+    const [callStats, setCallStats] = useState(EMPTY_CALL_STATS)
 
     const navItems = [
         { id: 'accounts', label: t('nav.accounts.label'), icon: Users, description: t('nav.accounts.desc') },
@@ -93,6 +102,32 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
             disposed = true
         }
     }, [authFetch])
+
+    useEffect(() => {
+        if (activeTab !== 'accounts') return undefined
+
+        let disposed = false
+        async function loadCallStats() {
+            try {
+                const res = await authFetch('/admin/chat-history')
+                const data = await res.json()
+                if (!res.ok || disposed) return
+                setCallStats({
+                    total_calls: Number(data?.stats?.total_calls || 0),
+                    success_calls: Number(data?.stats?.success_calls || 0),
+                    failed_calls: Number(data?.stats?.failed_calls || 0),
+                })
+            } catch (_err) {
+                if (disposed) return
+            }
+        }
+
+        loadCallStats()
+        return () => {
+            disposed = true
+        }
+    }, [activeTab, authFetch])
+
     const renderTab = () => {
         switch (activeTab) {
             case 'accounts':
@@ -247,6 +282,23 @@ export default function DashboardShell({ token, onLogout, config, fetchConfig, s
                             )}>
                                 {message.type === 'error' ? <X className="w-5 h-5" /> : <div className="w-5 h-5 rounded-full border-2 border-emerald-500 flex items-center justify-center text-[10px]">✓</div>}
                                 {message.text}
+                            </div>
+                        )}
+
+                        {activeTab === 'accounts' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div className="rounded-2xl border border-border bg-card shadow-sm px-4 py-3">
+                                    <div className="text-xs text-muted-foreground">{t('chatHistory.statsTotal')}</div>
+                                    <div className="mt-1 text-2xl font-bold text-foreground">{formatCallCount(callStats.total_calls)}</div>
+                                </div>
+                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 shadow-sm px-4 py-3">
+                                    <div className="text-xs text-emerald-600">{t('chatHistory.statsSuccess')}</div>
+                                    <div className="mt-1 text-2xl font-bold text-emerald-600">{formatCallCount(callStats.success_calls)}</div>
+                                </div>
+                                <div className="rounded-2xl border border-destructive/20 bg-destructive/10 shadow-sm px-4 py-3">
+                                    <div className="text-xs text-destructive">{t('chatHistory.statsFailed')}</div>
+                                    <div className="mt-1 text-2xl font-bold text-destructive">{formatCallCount(callStats.failed_calls)}</div>
+                                </div>
                             </div>
                         )}
 
