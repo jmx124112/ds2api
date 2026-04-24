@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +38,18 @@ func TestGetModelRouteDirectOnly(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("vision_alias_accepted", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-vision-chat", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for vision alias, got %d body=%s", rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, `"id":"deepseek-vision-chat"`) {
+			t.Fatalf("expected returned model id deepseek-vision-chat, got body=%s", body)
 		}
 	})
 
