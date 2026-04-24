@@ -1,4 +1,5 @@
-import { X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, EyeOff, X } from 'lucide-react'
 
 export default function EditAccountModal({
     show,
@@ -10,6 +11,14 @@ export default function EditAccountModal({
     onClose,
     onSave,
 }) {
+    const [showPassword, setShowPassword] = useState(false)
+
+    useEffect(() => {
+        if (!show) {
+            setShowPassword(false)
+        }
+    }, [show])
+
     if (!show || !editingAccount) {
         return null
     }
@@ -51,6 +60,27 @@ export default function EditAccountModal({
                             value={editAccount.remark}
                             onChange={e => setEditAccount({ ...editAccount, remark: e.target.value })}
                         />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1.5">{t('accountManager.passwordLabel')}</label>
+                        <div className="relative">
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                className="input-field pr-11"
+                                value={editAccount.password || ''}
+                                readOnly
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(v => !v)}
+                                className="absolute inset-y-0 right-0 px-3 text-muted-foreground hover:text-foreground transition-colors"
+                                title={showPassword ? t('accountManager.hidePassword') : t('accountManager.showPassword')}
+                                aria-label={showPassword ? t('accountManager.hidePassword') : t('accountManager.showPassword')}
+                            >
+                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{t('accountManager.passwordReadonlyHint')}</p>
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
                         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-sm font-medium">{t('actions.cancel')}</button>

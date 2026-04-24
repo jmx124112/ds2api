@@ -72,6 +72,7 @@ func (h *Handler) listAccounts(w http.ResponseWriter, r *http.Request) {
 			"remark":        acc.Remark,
 			"email":         acc.Email,
 			"mobile":        acc.Mobile,
+			"password":      acc.Password,
 			"proxy_id":      acc.ProxyID,
 			"has_password":  acc.Password != "",
 			"has_token":     token != "",

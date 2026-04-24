@@ -54,6 +54,30 @@ func TestListAccountsPageSizeAbove5000ClampedTo5000(t *testing.T) {
 	}
 }
 
+func TestListAccountsIncludesPasswordForEditModal(t *testing.T) {
+	h := newAdminTestHandler(t, `{"accounts":[{"email":"u@example.com","password":"secret-pass"}]}`)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/accounts?page=1&page_size=5000", nil)
+	h.listAccounts(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	items, _ := payload["items"].([]any)
+	if len(items) == 0 {
+		t.Fatalf("expected at least one account item")
+	}
+	item, _ := items[0].(map[string]any)
+	if _, ok := item["password"].(string); !ok {
+		t.Fatalf("expected password field in account item, got=%#v", item)
+	}
+}
+
 func TestUpdateAccountMetadataPreservesCredentials(t *testing.T) {
 	h := newAdminTestHandler(t, `{
 		"accounts":[{"email":"u@example.com","name":"old name","remark":"old remark","password":"secret"}]
