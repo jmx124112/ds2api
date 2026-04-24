@@ -188,14 +188,11 @@ cp config.example.json config.json
 ./ds2api
 ```
 
-### Option 2: Docker / GHCR
+### Option 2: Docker (Local Build by Default)
 
 ```bash
-# Pull prebuilt image
-docker pull ghcr.io/cjackhwang/ds2api:latest
-
-# Or run a pinned version
-# docker pull ghcr.io/cjackhwang/ds2api:v3.0.0
+# Optional: pull prebuilt image (if you want to run GHCR image instead of local build)
+# docker pull ghcr.io/cjackhwang/ds2api:latest
 
 # Prepare env file and config file
 cp .env.example .env
@@ -205,7 +202,7 @@ cp config.example.json config.json
 docker-compose up -d
 ```
 
-The default `docker-compose.yml` uses `ghcr.io/cjackhwang/ds2api:latest` and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
+The default `docker-compose.yml` builds a local image (`ds2api:local`) and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
 
 Rebuild after updates: `docker-compose up -d --build`
 
