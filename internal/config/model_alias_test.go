@@ -27,13 +27,6 @@ func TestResolveModelRejectsLegacyModelName(t *testing.T) {
 	}
 }
 
-func TestResolveModelAcceptsVisionAlias(t *testing.T) {
-	got, ok := ResolveModel(nil, "deepseek-vision-chat")
-	if !ok || got != "deepseek-vision-chat" {
-		t.Fatalf("expected deepseek-vision-chat -> deepseek-vision-chat, got ok=%v model=%q", ok, got)
-	}
-}
-
 func TestResolveModelRejectsThirdPartyAlias(t *testing.T) {
 	_, ok := ResolveModel(nil, "gpt-4.1")
 	if ok {

@@ -69,16 +69,6 @@ func TestGetModelConfigDeepSeekV4ProThinkingSearch(t *testing.T) {
 	}
 }
 
-func TestGetModelConfigVisionAliasIsSupported(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-vision-chat-search")
-	if !ok {
-		t.Fatal("expected ok for deepseek-vision-chat-search")
-	}
-	if thinking || !search {
-		t.Fatalf("expected thinking=false search=true, got thinking=%v search=%v", thinking, search)
-	}
-}
-
 func TestGetModelConfigLegacyModelNameIsRejected(t *testing.T) {
 	_, _, ok := GetModelConfig("deepseek-chat")
 	if ok {
@@ -94,10 +84,6 @@ func TestGetModelTypeDefaultAndExpert(t *testing.T) {
 	expertType, ok := GetModelType("deepseek-v4-pro-thinking")
 	if !ok || expertType != "expert" {
 		t.Fatalf("expected expert model_type, got ok=%v model_type=%q", ok, expertType)
-	}
-	visionType, ok := GetModelType("deepseek-vision-chat")
-	if !ok || visionType != "vision" {
-		t.Fatalf("expected vision model_type, got ok=%v model_type=%q", ok, visionType)
 	}
 }
 
@@ -735,10 +721,6 @@ func TestOpenAIModelsResponse(t *testing.T) {
 		"deepseek-v4-pro-thinking":          false,
 		"deepseek-v4-pro-search":            false,
 		"deepseek-v4-pro-thinking-search":   false,
-		"deepseek-vision-chat":              false,
-		"deepseek-vision-reasoner":          false,
-		"deepseek-vision-chat-search":       false,
-		"deepseek-vision-reasoner-search":   false,
 	}
 	for _, model := range data {
 		if _, ok := expected[model.ID]; ok {

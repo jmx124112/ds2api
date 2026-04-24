@@ -23,10 +23,6 @@ var DeepSeekModels = []ModelInfo{
 	{ID: "deepseek-v4-pro-thinking", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 	{ID: "deepseek-v4-pro-thinking-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-chat", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-reasoner", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-chat-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-reasoner-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 }
 
 var ClaudeModels = []ModelInfo{
@@ -80,14 +76,6 @@ func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 		return false, true, true
 	case "deepseek-v4-flash-thinking-search", "deepseek-v4-pro-thinking-search":
 		return true, true, true
-	case "deepseek-vision-chat":
-		return false, false, true
-	case "deepseek-vision-reasoner":
-		return true, false, true
-	case "deepseek-vision-chat-search":
-		return false, true, true
-	case "deepseek-vision-reasoner-search":
-		return true, true, true
 	default:
 		return false, false, false
 	}
@@ -99,8 +87,6 @@ func GetModelType(model string) (modelType string, ok bool) {
 		return "default", true
 	case "deepseek-v4-pro", "deepseek-v4-pro-thinking", "deepseek-v4-pro-search", "deepseek-v4-pro-thinking-search":
 		return "expert", true
-	case "deepseek-vision-chat", "deepseek-vision-reasoner", "deepseek-vision-chat-search", "deepseek-vision-reasoner-search":
-		return "vision", true
 	default:
 		return "", false
 	}
