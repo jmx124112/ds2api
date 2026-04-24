@@ -349,14 +349,14 @@ func TestConvertClaudeToDeepSeekNoSystem(t *testing.T) {
 }
 
 func TestConvertClaudeToDeepSeekOpusUsesSlowMapping(t *testing.T) {
-	t.Setenv("DS2API_CONFIG_JSON", `{"keys":[],"accounts":[],"claude_mapping":{"fast":"deepseek-chat","slow":"deepseek-reasoner"}}`)
+	t.Setenv("DS2API_CONFIG_JSON", `{"keys":[],"accounts":[],"claude_mapping":{"fast":"deepseek-v4-flash","slow":"deepseek-v4-pro-thinking"}}`)
 	store := config.LoadStore()
 	req := map[string]any{
 		"model":    "claude-opus-4-6",
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-	if out["model"] != "deepseek-reasoner" {
+	if out["model"] != "deepseek-v4-pro-thinking" {
 		t.Fatalf("expected opus to use slow mapping, got %q", out["model"])
 	}
 }

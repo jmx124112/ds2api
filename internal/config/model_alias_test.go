@@ -7,22 +7,22 @@ type mockModelAliasReader map[string]string
 func (m mockModelAliasReader) ModelAliases() map[string]string { return m }
 
 func TestResolveModelDirectDeepSeek(t *testing.T) {
-	got, ok := ResolveModel(nil, "deepseek-chat")
-	if !ok || got != "deepseek-chat" {
-		t.Fatalf("expected deepseek-chat, got ok=%v model=%q", ok, got)
+	got, ok := ResolveModel(nil, "deepseek-v4-flash")
+	if !ok || got != "deepseek-v4-flash" {
+		t.Fatalf("expected deepseek-v4-flash, got ok=%v model=%q", ok, got)
 	}
 }
 
 func TestResolveModelAlias(t *testing.T) {
 	got, ok := ResolveModel(nil, "gpt-4.1")
-	if !ok || got != "deepseek-chat" {
-		t.Fatalf("expected alias gpt-4.1 -> deepseek-chat, got ok=%v model=%q", ok, got)
+	if !ok || got != "deepseek-v4-flash" {
+		t.Fatalf("expected alias gpt-4.1 -> deepseek-v4-flash, got ok=%v model=%q", ok, got)
 	}
 }
 
 func TestResolveModelHeuristicReasoner(t *testing.T) {
 	got, ok := ResolveModel(nil, "o3-super")
-	if !ok || got != "deepseek-reasoner" {
+	if !ok || got != "deepseek-v4-pro-thinking" {
 		t.Fatalf("expected heuristic reasoner, got ok=%v model=%q", ok, got)
 	}
 }
@@ -34,28 +34,28 @@ func TestResolveModelUnknown(t *testing.T) {
 	}
 }
 
-func TestResolveModelDirectDeepSeekExpert(t *testing.T) {
-	got, ok := ResolveModel(nil, "deepseek-expert-chat")
-	if !ok || got != "deepseek-expert-chat" {
-		t.Fatalf("expected deepseek-expert-chat, got ok=%v model=%q", ok, got)
+func TestResolveModelDirectDeepSeekLegacy(t *testing.T) {
+	got, ok := ResolveModel(nil, "deepseek-chat")
+	if !ok || got != "deepseek-v4-flash" {
+		t.Fatalf("expected deepseek-chat -> deepseek-v4-flash, got ok=%v model=%q", ok, got)
 	}
 }
 
 func TestResolveModelCustomAliasToExpert(t *testing.T) {
 	got, ok := ResolveModel(mockModelAliasReader{
-		"my-expert-model": "deepseek-expert-reasoner-search",
+		"my-expert-model": "deepseek-v4-pro-thinking-search",
 	}, "my-expert-model")
-	if !ok || got != "deepseek-expert-reasoner-search" {
-		t.Fatalf("expected alias -> deepseek-expert-reasoner-search, got ok=%v model=%q", ok, got)
+	if !ok || got != "deepseek-v4-pro-thinking-search" {
+		t.Fatalf("expected alias -> deepseek-v4-pro-thinking-search, got ok=%v model=%q", ok, got)
 	}
 }
 
 func TestResolveModelCustomAliasToVision(t *testing.T) {
 	got, ok := ResolveModel(mockModelAliasReader{
-		"my-vision-model": "deepseek-vision-chat-search",
+		"my-vision-model": "deepseek-v4-flash-search",
 	}, "my-vision-model")
-	if !ok || got != "deepseek-vision-chat-search" {
-		t.Fatalf("expected alias -> deepseek-vision-chat-search, got ok=%v model=%q", ok, got)
+	if !ok || got != "deepseek-v4-flash-search" {
+		t.Fatalf("expected alias -> deepseek-v4-flash-search, got ok=%v model=%q", ok, got)
 	}
 }
 

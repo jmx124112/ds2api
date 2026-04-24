@@ -41,7 +41,7 @@ func (m mockOpenAIConfig) HistorySplitTriggerAfterTurns() int {
 func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 	cfg := mockOpenAIConfig{
 		aliases: map[string]string{
-			"my-model": "deepseek-chat-search",
+			"my-model": "deepseek-v4-flash-search",
 		},
 		wideInput: true,
 	}
@@ -53,7 +53,7 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeOpenAIChatRequest error: %v", err)
 	}
-	if out.ResolvedModel != "deepseek-chat-search" {
+	if out.ResolvedModel != "deepseek-v4-flash-search" {
 		t.Fatalf("resolved model mismatch: got=%q", out.ResolvedModel)
 	}
 	if !out.Search || out.Thinking {
@@ -63,7 +63,7 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 
 func TestNormalizeOpenAIResponsesRequestWideInputPolicyFromInterface(t *testing.T) {
 	req := map[string]any{
-		"model": "deepseek-chat",
+		"model": "deepseek-v4-flash",
 		"input": "hi",
 	}
 

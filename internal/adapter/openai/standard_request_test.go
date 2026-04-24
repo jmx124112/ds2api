@@ -27,7 +27,7 @@ func TestNormalizeOpenAIChatRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if n.ResolvedModel != "deepseek-reasoner" {
+	if n.ResolvedModel != "deepseek-v4-pro-thinking" {
 		t.Fatalf("unexpected resolved model: %s", n.ResolvedModel)
 	}
 	if !n.Stream {
@@ -82,7 +82,7 @@ func TestNormalizeOpenAIResponsesRequestInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if n.ResolvedModel != "deepseek-chat" {
+	if n.ResolvedModel != "deepseek-v4-flash" {
 		t.Fatalf("unexpected resolved model: %s", n.ResolvedModel)
 	}
 	if len(n.Messages) != 2 {

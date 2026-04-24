@@ -19,7 +19,7 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, mappingProvider ClaudeMap
 	}
 	dsModel := mapping["fast"]
 	if dsModel == "" {
-		dsModel = "deepseek-chat"
+		dsModel = "deepseek-v4-flash"
 	}
 
 	modelLower := strings.ToLower(model)

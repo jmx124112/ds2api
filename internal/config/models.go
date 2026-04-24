@@ -15,18 +15,14 @@ type ModelAliasReader interface {
 }
 
 var DeepSeekModels = []ModelInfo{
-	{ID: "deepseek-chat", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-reasoner", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-chat-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-reasoner-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-expert-chat", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-expert-reasoner", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-expert-chat-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-expert-reasoner-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-chat", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-reasoner", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-chat-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-vision-reasoner-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash-thinking", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash-thinking-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro-thinking", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro-thinking-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 }
 
 var ClaudeModels = []ModelInfo{
@@ -71,30 +67,14 @@ var ClaudeModels = []ModelInfo{
 }
 
 func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
-	switch lower(model) {
-	case "deepseek-chat":
+	switch canonicalDeepSeekModel(lower(strings.TrimSpace(model))) {
+	case "deepseek-v4-flash", "deepseek-v4-pro":
 		return false, false, true
-	case "deepseek-reasoner":
+	case "deepseek-v4-flash-thinking", "deepseek-v4-pro-thinking":
 		return true, false, true
-	case "deepseek-chat-search":
+	case "deepseek-v4-flash-search", "deepseek-v4-pro-search":
 		return false, true, true
-	case "deepseek-reasoner-search":
-		return true, true, true
-	case "deepseek-expert-chat":
-		return false, false, true
-	case "deepseek-expert-reasoner":
-		return true, false, true
-	case "deepseek-expert-chat-search":
-		return false, true, true
-	case "deepseek-expert-reasoner-search":
-		return true, true, true
-	case "deepseek-vision-chat":
-		return false, false, true
-	case "deepseek-vision-reasoner":
-		return true, false, true
-	case "deepseek-vision-chat-search":
-		return false, true, true
-	case "deepseek-vision-reasoner-search":
+	case "deepseek-v4-flash-thinking-search", "deepseek-v4-pro-thinking-search":
 		return true, true, true
 	default:
 		return false, false, false
@@ -102,13 +82,11 @@ func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 }
 
 func GetModelType(model string) (modelType string, ok bool) {
-	switch lower(model) {
-	case "deepseek-chat", "deepseek-reasoner", "deepseek-chat-search", "deepseek-reasoner-search":
+	switch canonicalDeepSeekModel(lower(strings.TrimSpace(model))) {
+	case "deepseek-v4-flash", "deepseek-v4-flash-thinking", "deepseek-v4-flash-search", "deepseek-v4-flash-thinking-search":
 		return "default", true
-	case "deepseek-expert-chat", "deepseek-expert-reasoner", "deepseek-expert-chat-search", "deepseek-expert-reasoner-search":
+	case "deepseek-v4-pro", "deepseek-v4-pro-thinking", "deepseek-v4-pro-search", "deepseek-v4-pro-thinking-search":
 		return "expert", true
-	case "deepseek-vision-chat", "deepseek-vision-reasoner", "deepseek-vision-chat-search", "deepseek-vision-reasoner-search":
-		return "vision", true
 	default:
 		return "", false
 	}
@@ -121,48 +99,71 @@ func IsSupportedDeepSeekModel(model string) bool {
 
 func DefaultModelAliases() map[string]string {
 	return map[string]string{
-		"gpt-4o":                 "deepseek-chat",
-		"gpt-4.1":                "deepseek-chat",
-		"gpt-4.1-mini":           "deepseek-chat",
-		"gpt-4.1-nano":           "deepseek-chat",
-		"gpt-5":                  "deepseek-chat",
-		"gpt-5-mini":             "deepseek-chat",
-		"gpt-5-codex":            "deepseek-reasoner",
-		"o1":                     "deepseek-reasoner",
-		"o1-mini":                "deepseek-reasoner",
-		"o3":                     "deepseek-reasoner",
-		"o3-mini":                "deepseek-reasoner",
-		"claude-sonnet-4-5":      "deepseek-chat",
-		"claude-haiku-4-5":       "deepseek-chat",
-		"claude-opus-4-6":        "deepseek-reasoner",
-		"claude-3-5-sonnet":      "deepseek-chat",
-		"claude-3-5-haiku":       "deepseek-chat",
-		"claude-3-opus":          "deepseek-reasoner",
-		"gemini-2.5-pro":         "deepseek-chat",
-		"gemini-2.5-flash":       "deepseek-chat",
-		"llama-3.1-70b-instruct": "deepseek-chat",
-		"qwen-max":               "deepseek-chat",
+		// Legacy DeepSeek aliases for compatibility.
+		"deepseek-chat":                   "deepseek-v4-flash",
+		"deepseek-chat-search":            "deepseek-v4-flash-search",
+		"deepseek-reasoner":               "deepseek-v4-pro-thinking",
+		"deepseek-reasoner-search":        "deepseek-v4-pro-thinking-search",
+		"deepseek-expert-chat":            "deepseek-v4-pro",
+		"deepseek-expert-chat-search":     "deepseek-v4-pro-search",
+		"deepseek-expert-reasoner":        "deepseek-v4-pro-thinking",
+		"deepseek-expert-reasoner-search": "deepseek-v4-pro-thinking-search",
+		"deepseek-vision-chat":            "deepseek-v4-flash",
+		"deepseek-vision-chat-search":     "deepseek-v4-flash-search",
+		"deepseek-vision-reasoner":        "deepseek-v4-pro-thinking",
+		"deepseek-vision-reasoner-search": "deepseek-v4-pro-thinking-search",
+		// Third-party naming aliases.
+		"gpt-4o":                 "deepseek-v4-flash",
+		"gpt-4.1":                "deepseek-v4-flash",
+		"gpt-4.1-mini":           "deepseek-v4-flash",
+		"gpt-4.1-nano":           "deepseek-v4-flash",
+		"gpt-5":                  "deepseek-v4-flash",
+		"gpt-5-mini":             "deepseek-v4-flash",
+		"gpt-5-codex":            "deepseek-v4-pro-thinking",
+		"o1":                     "deepseek-v4-pro-thinking",
+		"o1-mini":                "deepseek-v4-pro-thinking",
+		"o3":                     "deepseek-v4-pro-thinking",
+		"o3-mini":                "deepseek-v4-pro-thinking",
+		"claude-sonnet-4-5":      "deepseek-v4-flash",
+		"claude-haiku-4-5":       "deepseek-v4-flash",
+		"claude-opus-4-6":        "deepseek-v4-pro-thinking",
+		"claude-3-5-sonnet":      "deepseek-v4-flash",
+		"claude-3-5-haiku":       "deepseek-v4-flash",
+		"claude-3-opus":          "deepseek-v4-pro-thinking",
+		"gemini-2.5-pro":         "deepseek-v4-pro-thinking",
+		"gemini-2.5-flash":       "deepseek-v4-flash",
+		"llama-3.1-70b-instruct": "deepseek-v4-flash",
+		"qwen-max":               "deepseek-v4-flash",
 	}
 }
 
 func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
-	model := lower(strings.TrimSpace(requested))
-	if model == "" {
+	requestedModel := lower(strings.TrimSpace(requested))
+	if requestedModel == "" {
 		return "", false
 	}
-	if IsSupportedDeepSeekModel(model) {
-		return model, true
+	canonicalRequested := canonicalDeepSeekModel(requestedModel)
+	if IsSupportedDeepSeekModel(canonicalRequested) {
+		return canonicalRequested, true
 	}
 	aliases := DefaultModelAliases()
 	if store != nil {
 		for k, v := range store.ModelAliases() {
-			aliases[lower(strings.TrimSpace(k))] = lower(strings.TrimSpace(v))
+			key := lower(strings.TrimSpace(k))
+			val := canonicalDeepSeekModel(lower(strings.TrimSpace(v)))
+			if key == "" || val == "" {
+				continue
+			}
+			aliases[key] = val
 		}
 	}
-	if mapped, ok := aliases[model]; ok && IsSupportedDeepSeekModel(mapped) {
-		return mapped, true
+	if mapped, ok := aliases[requestedModel]; ok {
+		mapped = canonicalDeepSeekModel(mapped)
+		if IsSupportedDeepSeekModel(mapped) {
+			return mapped, true
+		}
 	}
-	if strings.HasPrefix(model, "deepseek-") {
+	if strings.HasPrefix(requestedModel, "deepseek-") {
 		return "", false
 	}
 
@@ -170,7 +171,7 @@ func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
 	for _, prefix := range []string{
 		"gpt-", "o1", "o3", "claude-", "gemini-", "llama-", "qwen-", "mistral-", "command-",
 	} {
-		if strings.HasPrefix(model, prefix) {
+		if strings.HasPrefix(requestedModel, prefix) {
 			knownFamily = true
 			break
 		}
@@ -179,23 +180,66 @@ func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
 		return "", false
 	}
 
-	useReasoner := strings.Contains(model, "reason") ||
-		strings.Contains(model, "reasoner") ||
-		strings.HasPrefix(model, "o1") ||
-		strings.HasPrefix(model, "o3") ||
-		strings.Contains(model, "opus") ||
-		strings.Contains(model, "r1")
-	useSearch := strings.Contains(model, "search")
+	usePro := strings.Contains(requestedModel, "pro") ||
+		strings.Contains(requestedModel, "reason") ||
+		strings.Contains(requestedModel, "reasoner") ||
+		strings.HasPrefix(requestedModel, "o1") ||
+		strings.HasPrefix(requestedModel, "o3") ||
+		strings.Contains(requestedModel, "opus") ||
+		strings.Contains(requestedModel, "r1")
+	useThinking := strings.Contains(requestedModel, "thinking") ||
+		strings.Contains(requestedModel, "reason") ||
+		strings.Contains(requestedModel, "reasoner") ||
+		strings.HasPrefix(requestedModel, "o1") ||
+		strings.HasPrefix(requestedModel, "o3") ||
+		strings.Contains(requestedModel, "opus") ||
+		strings.Contains(requestedModel, "r1")
+	useSearch := strings.Contains(requestedModel, "search")
+	base := "deepseek-v4-flash"
+	if usePro {
+		base = "deepseek-v4-pro"
+	}
 
 	switch {
-	case useReasoner && useSearch:
-		return "deepseek-reasoner-search", true
-	case useReasoner:
-		return "deepseek-reasoner", true
+	case useThinking && useSearch:
+		return base + "-thinking-search", true
+	case useThinking:
+		return base + "-thinking", true
 	case useSearch:
-		return "deepseek-chat-search", true
+		return base + "-search", true
 	default:
-		return "deepseek-chat", true
+		return base, true
+	}
+}
+
+func canonicalDeepSeekModel(model string) string {
+	switch lower(strings.TrimSpace(model)) {
+	case "deepseek-chat":
+		return "deepseek-v4-flash"
+	case "deepseek-chat-search":
+		return "deepseek-v4-flash-search"
+	case "deepseek-reasoner":
+		return "deepseek-v4-pro-thinking"
+	case "deepseek-reasoner-search":
+		return "deepseek-v4-pro-thinking-search"
+	case "deepseek-expert-chat":
+		return "deepseek-v4-pro"
+	case "deepseek-expert-chat-search":
+		return "deepseek-v4-pro-search"
+	case "deepseek-expert-reasoner":
+		return "deepseek-v4-pro-thinking"
+	case "deepseek-expert-reasoner-search":
+		return "deepseek-v4-pro-thinking-search"
+	case "deepseek-vision-chat":
+		return "deepseek-v4-flash"
+	case "deepseek-vision-chat-search":
+		return "deepseek-v4-flash-search"
+	case "deepseek-vision-reasoner":
+		return "deepseek-v4-pro-thinking"
+	case "deepseek-vision-reasoner-search":
+		return "deepseek-v4-pro-thinking-search"
+	default:
+		return lower(strings.TrimSpace(model))
 	}
 }
 

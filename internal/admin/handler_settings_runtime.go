@@ -50,5 +50,5 @@ func settingsClaudeMapping(c config.Config) map[string]string {
 	if len(c.ClaudeModelMap) > 0 {
 		return c.ClaudeModelMap
 	}
-	return map[string]string{"fast": "deepseek-chat", "slow": "deepseek-reasoner"}
+	return map[string]string{"fast": "deepseek-v4-flash", "slow": "deepseek-v4-pro-thinking"}
 }

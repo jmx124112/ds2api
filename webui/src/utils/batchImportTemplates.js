@@ -35,9 +35,9 @@ const fullTemplateConfig = {
         },
     ],
     model_aliases: {
-        'gpt-4o': 'deepseek-chat',
-        'gpt-5-codex': 'deepseek-reasoner',
-        o3: 'deepseek-reasoner',
+        'gpt-4o': 'deepseek-v4-flash',
+        'gpt-5-codex': 'deepseek-v4-pro-thinking',
+        o3: 'deepseek-v4-pro-thinking',
     },
     compat: {
         wide_input_strict_output: true,
@@ -54,8 +54,8 @@ const fullTemplateConfig = {
         provider: 'deterministic',
     },
     claude_mapping: {
-        fast: 'deepseek-chat',
-        slow: 'deepseek-reasoner',
+        fast: 'deepseek-v4-flash',
+        slow: 'deepseek-v4-pro-thinking',
     },
     admin: {
         jwt_expire_hours: 24,
