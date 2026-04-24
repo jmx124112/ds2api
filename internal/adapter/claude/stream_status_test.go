@@ -23,8 +23,8 @@ type streamStatusClaudeStoreStub struct{}
 
 func (streamStatusClaudeStoreStub) ClaudeMapping() map[string]string {
 	return map[string]string{
-		"fast": "deepseek-chat",
-		"slow": "deepseek-reasoner",
+		"fast": "deepseek-v4-flash",
+		"slow": "deepseek-v4-pro-thinking",
 	}
 }
 

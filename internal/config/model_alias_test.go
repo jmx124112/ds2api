@@ -13,20 +13,6 @@ func TestResolveModelDirectDeepSeek(t *testing.T) {
 	}
 }
 
-func TestResolveModelAlias(t *testing.T) {
-	got, ok := ResolveModel(nil, "gpt-4.1")
-	if !ok || got != "deepseek-v4-flash" {
-		t.Fatalf("expected alias gpt-4.1 -> deepseek-v4-flash, got ok=%v model=%q", ok, got)
-	}
-}
-
-func TestResolveModelHeuristicReasoner(t *testing.T) {
-	got, ok := ResolveModel(nil, "o3-super")
-	if !ok || got != "deepseek-v4-pro-thinking" {
-		t.Fatalf("expected heuristic reasoner, got ok=%v model=%q", ok, got)
-	}
-}
-
 func TestResolveModelUnknown(t *testing.T) {
 	_, ok := ResolveModel(nil, "totally-custom-model")
 	if ok {
@@ -34,28 +20,26 @@ func TestResolveModelUnknown(t *testing.T) {
 	}
 }
 
-func TestResolveModelDirectDeepSeekLegacy(t *testing.T) {
-	got, ok := ResolveModel(nil, "deepseek-chat")
-	if !ok || got != "deepseek-v4-flash" {
-		t.Fatalf("expected deepseek-chat -> deepseek-v4-flash, got ok=%v model=%q", ok, got)
+func TestResolveModelRejectsLegacyModelName(t *testing.T) {
+	_, ok := ResolveModel(nil, "deepseek-chat")
+	if ok {
+		t.Fatalf("expected legacy model deepseek-chat to be rejected")
 	}
 }
 
-func TestResolveModelCustomAliasToExpert(t *testing.T) {
-	got, ok := ResolveModel(mockModelAliasReader{
-		"my-expert-model": "deepseek-v4-pro-thinking-search",
-	}, "my-expert-model")
-	if !ok || got != "deepseek-v4-pro-thinking-search" {
-		t.Fatalf("expected alias -> deepseek-v4-pro-thinking-search, got ok=%v model=%q", ok, got)
+func TestResolveModelRejectsThirdPartyAlias(t *testing.T) {
+	_, ok := ResolveModel(nil, "gpt-4.1")
+	if ok {
+		t.Fatalf("expected third-party alias gpt-4.1 to be rejected")
 	}
 }
 
-func TestResolveModelCustomAliasToVision(t *testing.T) {
-	got, ok := ResolveModel(mockModelAliasReader{
-		"my-vision-model": "deepseek-v4-flash-search",
-	}, "my-vision-model")
-	if !ok || got != "deepseek-v4-flash-search" {
-		t.Fatalf("expected alias -> deepseek-v4-flash-search, got ok=%v model=%q", ok, got)
+func TestResolveModelRejectsStoreAlias(t *testing.T) {
+	_, ok := ResolveModel(mockModelAliasReader{
+		"my-model": "deepseek-v4-flash",
+	}, "my-model")
+	if ok {
+		t.Fatalf("expected store alias to be rejected")
 	}
 }
 

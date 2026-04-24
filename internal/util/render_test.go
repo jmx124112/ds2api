@@ -5,7 +5,7 @@ import "testing"
 func TestBuildOpenAIResponseObjectWithText(t *testing.T) {
 	out := BuildOpenAIResponseObject(
 		"resp_1",
-		"gpt-4o",
+		"deepseek-v4-flash",
 		"prompt",
 		"reasoning",
 		"text",

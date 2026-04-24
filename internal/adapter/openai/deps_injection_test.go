@@ -46,7 +46,7 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 		wideInput: true,
 	}
 	req := map[string]any{
-		"model":    "my-model",
+		"model":    "deepseek-v4-flash-search",
 		"messages": []any{map[string]any{"role": "user", "content": "hello"}},
 	}
 	out, err := normalizeOpenAIChatRequest(cfg, req, "")
@@ -58,6 +58,22 @@ func TestNormalizeOpenAIChatRequestWithConfigInterface(t *testing.T) {
 	}
 	if !out.Search || out.Thinking {
 		t.Fatalf("unexpected model flags: thinking=%v search=%v", out.Thinking, out.Search)
+	}
+}
+
+func TestNormalizeOpenAIChatRequestRejectsConfigAlias(t *testing.T) {
+	cfg := mockOpenAIConfig{
+		aliases: map[string]string{
+			"my-model": "deepseek-v4-flash-search",
+		},
+		wideInput: true,
+	}
+	req := map[string]any{
+		"model":    "my-model",
+		"messages": []any{map[string]any{"role": "user", "content": "hello"}},
+	}
+	if _, err := normalizeOpenAIChatRequest(cfg, req, ""); err == nil {
+		t.Fatalf("expected strict model validation to reject config alias")
 	}
 }
 

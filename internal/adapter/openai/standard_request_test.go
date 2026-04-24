@@ -16,7 +16,7 @@ func newEmptyStoreForNormalizeTest(t *testing.T) *config.Store {
 func TestNormalizeOpenAIChatRequest(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-5-codex",
+		"model": "deepseek-v4-pro-thinking",
 		"messages": []any{
 			map[string]any{"role": "user", "content": "hello"},
 		},
@@ -44,7 +44,7 @@ func TestNormalizeOpenAIChatRequest(t *testing.T) {
 func TestNormalizeOpenAIChatRequestCollectsRefFileIDs(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-5-codex",
+		"model": "deepseek-v4-pro-thinking",
 		"messages": []any{
 			map[string]any{
 				"role": "user",
@@ -74,7 +74,7 @@ func TestNormalizeOpenAIChatRequestCollectsRefFileIDs(t *testing.T) {
 func TestNormalizeOpenAIResponsesRequestInput(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model":        "gpt-4o",
+		"model":        "deepseek-v4-flash",
 		"input":        "ping",
 		"instructions": "system",
 	}
@@ -93,7 +93,7 @@ func TestNormalizeOpenAIResponsesRequestInput(t *testing.T) {
 func TestNormalizeOpenAIResponsesRequestToolChoiceRequired(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-4o",
+		"model": "deepseek-v4-flash",
 		"input": "ping",
 		"tools": []any{
 			map[string]any{
@@ -123,7 +123,7 @@ func TestNormalizeOpenAIResponsesRequestToolChoiceRequired(t *testing.T) {
 func TestNormalizeOpenAIResponsesRequestToolChoiceForcedFunction(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-4o",
+		"model": "deepseek-v4-flash",
 		"input": "ping",
 		"tools": []any{
 			map[string]any{
@@ -162,7 +162,7 @@ func TestNormalizeOpenAIResponsesRequestToolChoiceForcedFunction(t *testing.T) {
 func TestNormalizeOpenAIResponsesRequestToolChoiceForcedUndeclaredFails(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-4o",
+		"model": "deepseek-v4-flash",
 		"input": "ping",
 		"tools": []any{
 			map[string]any{
@@ -185,7 +185,7 @@ func TestNormalizeOpenAIResponsesRequestToolChoiceForcedUndeclaredFails(t *testi
 func TestNormalizeOpenAIResponsesRequestToolChoiceNoneKeepsToolDetectionEnabled(t *testing.T) {
 	store := newEmptyStoreForNormalizeTest(t)
 	req := map[string]any{
-		"model": "gpt-4o",
+		"model": "deepseek-v4-flash",
 		"input": "ping",
 		"tools": []any{
 			map[string]any{

@@ -8,7 +8,7 @@ import (
 func TestBuildResponseObjectKeepsFencedToolPayloadAsText(t *testing.T) {
 	obj := BuildResponseObject(
 		"resp_test",
-		"gpt-4o",
+		"deepseek-v4-flash",
 		"prompt",
 		"",
 		"```json\n{\"tool_calls\":[{\"name\":\"search\",\"input\":{\"q\":\"golang\"}}]}\n```",
@@ -37,7 +37,7 @@ func TestBuildResponseObjectPromotesFencedToolPayloadToFunctionCall(t *testing.T
 func TestBuildResponseObjectReasoningOnlyFallsBackToOutputText(t *testing.T) {
 	obj := BuildResponseObject(
 		"resp_test",
-		"gpt-4o",
+		"deepseek-v4-flash",
 		"prompt",
 		"internal thinking content",
 		"",
@@ -70,7 +70,7 @@ func TestBuildResponseObjectReasoningOnlyFallsBackToOutputText(t *testing.T) {
 func TestBuildResponseObjectIgnoresToolCallFromThinkingChannel(t *testing.T) {
 	obj := BuildResponseObject(
 		"resp_test",
-		"gpt-4o",
+		"deepseek-v4-flash",
 		"prompt",
 		`{"tool_calls":[{"name":"search","input":{"q":"from-thinking"}}]}`,
 		"",

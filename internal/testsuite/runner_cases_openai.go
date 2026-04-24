@@ -63,7 +63,7 @@ func (r *Runner) caseModelsOpenAI(ctx context.Context, cc *caseContext) error {
 }
 
 func (r *Runner) caseModelOpenAIByID(ctx context.Context, cc *caseContext) error {
-	resp, err := cc.request(ctx, requestSpec{Method: http.MethodGet, Path: "/v1/models/gpt-4o", Retryable: true})
+	resp, err := cc.request(ctx, requestSpec{Method: http.MethodGet, Path: "/v1/models/deepseek-v4-flash", Retryable: true})
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (r *Runner) caseResponsesNonstream(ctx context.Context, cc *caseContext) er
 			"Authorization": "Bearer " + r.apiKey,
 		},
 		Body: map[string]any{
-			"model": "gpt-4o",
+			"model": "deepseek-v4-flash",
 			"input": "请简要回答 hello",
 		},
 		Retryable: true,
@@ -176,7 +176,7 @@ func (r *Runner) caseResponsesStream(ctx context.Context, cc *caseContext) error
 			"Authorization": "Bearer " + r.apiKey,
 		},
 		Body: map[string]any{
-			"model":  "gpt-4o",
+			"model":  "deepseek-v4-flash",
 			"input":  "请流式回答 hello",
 			"stream": true,
 		},
@@ -213,7 +213,7 @@ func (r *Runner) caseEmbeddings(ctx context.Context, cc *caseContext) error {
 			"Authorization": "Bearer " + r.apiKey,
 		},
 		Body: map[string]any{
-			"model": "gpt-4o",
+			"model": "deepseek-v4-flash",
 			"input": []string{"hello", "world"},
 		},
 		Retryable: true,

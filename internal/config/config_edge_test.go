@@ -69,13 +69,10 @@ func TestGetModelConfigDeepSeekV4ProThinkingSearch(t *testing.T) {
 	}
 }
 
-func TestGetModelConfigLegacyModelNameIsSupported(t *testing.T) {
-	thinking, search, ok := GetModelConfig("deepseek-reasoner-search")
-	if !ok {
-		t.Fatal("expected ok for legacy model deepseek-reasoner-search")
-	}
-	if !thinking || !search {
-		t.Fatalf("expected both true, got thinking=%v search=%v", thinking, search)
+func TestGetModelConfigLegacyModelNameIsRejected(t *testing.T) {
+	_, _, ok := GetModelConfig("deepseek-chat")
+	if ok {
+		t.Fatal("expected legacy model deepseek-chat to be rejected")
 	}
 }
 

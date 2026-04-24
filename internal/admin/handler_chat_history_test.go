@@ -43,7 +43,7 @@ func TestGetChatHistoryAndUpdateSettings(t *testing.T) {
 	entry, err := historyStore.Start(chathistory.StartParams{
 		CallerID:  "caller:test",
 		AccountID: "user@example.com",
-		Model:     "deepseek-chat",
+		Model:     "deepseek-v4-flash",
 		UserInput: "hello",
 	})
 	if err != nil {

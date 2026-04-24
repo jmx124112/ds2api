@@ -170,7 +170,7 @@ func TestApplyHistorySplitSkipsFirstTurn(t *testing.T) {
 		DS: ds,
 	}
 	req := map[string]any{
-		"model": "deepseek-chat",
+		"model": "deepseek-v4-flash",
 		"messages": []any{
 			map[string]any{"role": "user", "content": "hello"},
 		},
@@ -206,7 +206,7 @@ func TestApplyHistorySplitCarriesHistoryText(t *testing.T) {
 		DS: ds,
 	}
 	req := map[string]any{
-		"model":    "deepseek-chat",
+		"model":    "deepseek-v4-flash",
 		"messages": historySplitTestMessages(),
 	}
 	stdReq, err := normalizeOpenAIChatRequest(h.Store, req, "")
@@ -238,7 +238,7 @@ func TestChatCompletionsHistorySplitUploadsHistoryAndKeepsLatestPrompt(t *testin
 		DS:   ds,
 	}
 	reqBody, _ := json.Marshal(map[string]any{
-		"model":    "deepseek-chat",
+		"model":    "deepseek-v4-flash",
 		"messages": historySplitTestMessages(),
 		"stream":   false,
 	})
@@ -314,7 +314,7 @@ func TestResponsesHistorySplitUploadsHistoryAndKeepsLatestPrompt(t *testing.T) {
 	r := chi.NewRouter()
 	RegisterRoutes(r, h)
 	reqBody, _ := json.Marshal(map[string]any{
-		"model":    "deepseek-chat",
+		"model":    "deepseek-v4-flash",
 		"messages": historySplitTestMessages(),
 		"stream":   false,
 	})
@@ -364,7 +364,7 @@ func TestChatCompletionsHistorySplitUploadFailureReturnsInternalServerError(t *t
 		DS:   ds,
 	}
 	reqBody, _ := json.Marshal(map[string]any{
-		"model":    "deepseek-chat",
+		"model":    "deepseek-v4-flash",
 		"messages": historySplitTestMessages(),
 		"stream":   false,
 	})

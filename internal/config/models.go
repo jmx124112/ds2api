@@ -67,7 +67,7 @@ var ClaudeModels = []ModelInfo{
 }
 
 func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
-	switch canonicalDeepSeekModel(lower(strings.TrimSpace(model))) {
+	switch normalizeDeepSeekModel(model) {
 	case "deepseek-v4-flash", "deepseek-v4-pro":
 		return false, false, true
 	case "deepseek-v4-flash-thinking", "deepseek-v4-pro-thinking":
@@ -82,7 +82,7 @@ func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 }
 
 func GetModelType(model string) (modelType string, ok bool) {
-	switch canonicalDeepSeekModel(lower(strings.TrimSpace(model))) {
+	switch normalizeDeepSeekModel(model) {
 	case "deepseek-v4-flash", "deepseek-v4-flash-thinking", "deepseek-v4-flash-search", "deepseek-v4-flash-thinking-search":
 		return "default", true
 	case "deepseek-v4-pro", "deepseek-v4-pro-thinking", "deepseek-v4-pro-search", "deepseek-v4-pro-thinking-search":
@@ -98,149 +98,19 @@ func IsSupportedDeepSeekModel(model string) bool {
 }
 
 func DefaultModelAliases() map[string]string {
-	return map[string]string{
-		// Legacy DeepSeek aliases for compatibility.
-		"deepseek-chat":                   "deepseek-v4-flash",
-		"deepseek-chat-search":            "deepseek-v4-flash-search",
-		"deepseek-reasoner":               "deepseek-v4-pro-thinking",
-		"deepseek-reasoner-search":        "deepseek-v4-pro-thinking-search",
-		"deepseek-expert-chat":            "deepseek-v4-pro",
-		"deepseek-expert-chat-search":     "deepseek-v4-pro-search",
-		"deepseek-expert-reasoner":        "deepseek-v4-pro-thinking",
-		"deepseek-expert-reasoner-search": "deepseek-v4-pro-thinking-search",
-		"deepseek-vision-chat":            "deepseek-v4-flash",
-		"deepseek-vision-chat-search":     "deepseek-v4-flash-search",
-		"deepseek-vision-reasoner":        "deepseek-v4-pro-thinking",
-		"deepseek-vision-reasoner-search": "deepseek-v4-pro-thinking-search",
-		// Third-party naming aliases.
-		"gpt-4o":                 "deepseek-v4-flash",
-		"gpt-4.1":                "deepseek-v4-flash",
-		"gpt-4.1-mini":           "deepseek-v4-flash",
-		"gpt-4.1-nano":           "deepseek-v4-flash",
-		"gpt-5":                  "deepseek-v4-flash",
-		"gpt-5-mini":             "deepseek-v4-flash",
-		"gpt-5-codex":            "deepseek-v4-pro-thinking",
-		"o1":                     "deepseek-v4-pro-thinking",
-		"o1-mini":                "deepseek-v4-pro-thinking",
-		"o3":                     "deepseek-v4-pro-thinking",
-		"o3-mini":                "deepseek-v4-pro-thinking",
-		"claude-sonnet-4-5":      "deepseek-v4-flash",
-		"claude-haiku-4-5":       "deepseek-v4-flash",
-		"claude-opus-4-6":        "deepseek-v4-pro-thinking",
-		"claude-3-5-sonnet":      "deepseek-v4-flash",
-		"claude-3-5-haiku":       "deepseek-v4-flash",
-		"claude-3-opus":          "deepseek-v4-pro-thinking",
-		"gemini-2.5-pro":         "deepseek-v4-pro-thinking",
-		"gemini-2.5-flash":       "deepseek-v4-flash",
-		"llama-3.1-70b-instruct": "deepseek-v4-flash",
-		"qwen-max":               "deepseek-v4-flash",
-	}
+	return map[string]string{}
 }
 
-func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
-	requestedModel := lower(strings.TrimSpace(requested))
-	if requestedModel == "" {
+func ResolveModel(_ ModelAliasReader, requested string) (string, bool) {
+	model := normalizeDeepSeekModel(requested)
+	if !IsSupportedDeepSeekModel(model) {
 		return "", false
 	}
-	canonicalRequested := canonicalDeepSeekModel(requestedModel)
-	if IsSupportedDeepSeekModel(canonicalRequested) {
-		return canonicalRequested, true
-	}
-	aliases := DefaultModelAliases()
-	if store != nil {
-		for k, v := range store.ModelAliases() {
-			key := lower(strings.TrimSpace(k))
-			val := canonicalDeepSeekModel(lower(strings.TrimSpace(v)))
-			if key == "" || val == "" {
-				continue
-			}
-			aliases[key] = val
-		}
-	}
-	if mapped, ok := aliases[requestedModel]; ok {
-		mapped = canonicalDeepSeekModel(mapped)
-		if IsSupportedDeepSeekModel(mapped) {
-			return mapped, true
-		}
-	}
-	if strings.HasPrefix(requestedModel, "deepseek-") {
-		return "", false
-	}
-
-	knownFamily := false
-	for _, prefix := range []string{
-		"gpt-", "o1", "o3", "claude-", "gemini-", "llama-", "qwen-", "mistral-", "command-",
-	} {
-		if strings.HasPrefix(requestedModel, prefix) {
-			knownFamily = true
-			break
-		}
-	}
-	if !knownFamily {
-		return "", false
-	}
-
-	usePro := strings.Contains(requestedModel, "pro") ||
-		strings.Contains(requestedModel, "reason") ||
-		strings.Contains(requestedModel, "reasoner") ||
-		strings.HasPrefix(requestedModel, "o1") ||
-		strings.HasPrefix(requestedModel, "o3") ||
-		strings.Contains(requestedModel, "opus") ||
-		strings.Contains(requestedModel, "r1")
-	useThinking := strings.Contains(requestedModel, "thinking") ||
-		strings.Contains(requestedModel, "reason") ||
-		strings.Contains(requestedModel, "reasoner") ||
-		strings.HasPrefix(requestedModel, "o1") ||
-		strings.HasPrefix(requestedModel, "o3") ||
-		strings.Contains(requestedModel, "opus") ||
-		strings.Contains(requestedModel, "r1")
-	useSearch := strings.Contains(requestedModel, "search")
-	base := "deepseek-v4-flash"
-	if usePro {
-		base = "deepseek-v4-pro"
-	}
-
-	switch {
-	case useThinking && useSearch:
-		return base + "-thinking-search", true
-	case useThinking:
-		return base + "-thinking", true
-	case useSearch:
-		return base + "-search", true
-	default:
-		return base, true
-	}
+	return model, true
 }
 
-func canonicalDeepSeekModel(model string) string {
-	switch lower(strings.TrimSpace(model)) {
-	case "deepseek-chat":
-		return "deepseek-v4-flash"
-	case "deepseek-chat-search":
-		return "deepseek-v4-flash-search"
-	case "deepseek-reasoner":
-		return "deepseek-v4-pro-thinking"
-	case "deepseek-reasoner-search":
-		return "deepseek-v4-pro-thinking-search"
-	case "deepseek-expert-chat":
-		return "deepseek-v4-pro"
-	case "deepseek-expert-chat-search":
-		return "deepseek-v4-pro-search"
-	case "deepseek-expert-reasoner":
-		return "deepseek-v4-pro-thinking"
-	case "deepseek-expert-reasoner-search":
-		return "deepseek-v4-pro-thinking-search"
-	case "deepseek-vision-chat":
-		return "deepseek-v4-flash"
-	case "deepseek-vision-chat-search":
-		return "deepseek-v4-flash-search"
-	case "deepseek-vision-reasoner":
-		return "deepseek-v4-pro-thinking"
-	case "deepseek-vision-reasoner-search":
-		return "deepseek-v4-pro-thinking-search"
-	default:
-		return lower(strings.TrimSpace(model))
-	}
+func normalizeDeepSeekModel(model string) string {
+	return lower(strings.TrimSpace(model))
 }
 
 func lower(s string) string {

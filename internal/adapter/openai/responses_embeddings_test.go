@@ -19,7 +19,7 @@ func TestNormalizeResponsesInputAsMessagesString(t *testing.T) {
 
 func TestResponsesMessagesFromRequestWithInstructions(t *testing.T) {
 	req := map[string]any{
-		"model":        "gpt-4.1",
+		"model":        "deepseek-v4-flash",
 		"input":        "ping",
 		"instructions": "system text",
 	}

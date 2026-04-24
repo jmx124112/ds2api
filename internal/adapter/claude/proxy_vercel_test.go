@@ -71,7 +71,7 @@ func TestClaudeProxyViaOpenAIVercelPreparePassthrough(t *testing.T) {
 func TestClaudeProxyViaOpenAIPreservesClaudeMapping(t *testing.T) {
 	openAI := &openAIProxyCaptureStub{}
 	h := &Handler{
-		Store:  claudeProxyStoreStub{mapping: map[string]string{"fast": "deepseek-chat", "slow": "deepseek-reasoner"}},
+		Store:  claudeProxyStoreStub{mapping: map[string]string{"fast": "deepseek-v4-flash", "slow": "deepseek-v4-pro-thinking"}},
 		OpenAI: openAI,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(`{"model":"claude-3-opus","messages":[{"role":"user","content":"hi"}],"stream":false}`))
@@ -82,8 +82,8 @@ func TestClaudeProxyViaOpenAIPreservesClaudeMapping(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-reasoner" {
-		t.Fatalf("expected mapped proxy model deepseek-reasoner, got %q", got)
+	if got := strings.TrimSpace(openAI.seenModel); got != "deepseek-v4-pro-thinking" {
+		t.Fatalf("expected mapped proxy model deepseek-v4-pro-thinking, got %q", got)
 	}
 }
 

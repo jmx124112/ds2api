@@ -85,13 +85,13 @@ func TestToOpenAIByNameAllSupportedFormats(t *testing.T) {
 		model  string
 		body   string
 	}{
-		{name: "openai", format: "openai", model: "gpt-4.1", body: `{"model":"gpt-4.1","messages":[{"role":"user","content":"hi"}],"stream":false}`},
-		{name: "responses", format: "responses", model: "gpt-4.1", body: `{"model":"gpt-4.1","input":"hello","stream":false}`},
+		{name: "openai", format: "openai", model: "deepseek-v4-flash", body: `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}],"stream":false}`},
+		{name: "responses", format: "responses", model: "deepseek-v4-flash", body: `{"model":"deepseek-v4-flash","input":"hello","stream":false}`},
 		{name: "claude", format: "claude", model: "claude-sonnet-4-5", body: `{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}],"stream":false}`},
 		{name: "gemini", format: "gemini", model: "gemini-2.5-pro", body: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`},
 		{name: "gemini-cli", format: "gemini-cli", model: "gemini-2.5-pro", body: `{"model":"gemini-2.5-pro","messages":[{"role":"user","content":"hello"}],"stream":false}`},
-		{name: "codex", format: "codex", model: "gpt-5-codex", body: `{"model":"gpt-5-codex","messages":[{"role":"user","content":"hello"}],"stream":false}`},
-		{name: "antigravity", format: "antigravity", model: "gpt-4.1", body: `{"model":"gpt-4.1","messages":[{"role":"user","content":"hello"}],"stream":false}`},
+		{name: "codex", format: "codex", model: "deepseek-v4-pro-thinking", body: `{"model":"deepseek-v4-pro-thinking","messages":[{"role":"user","content":"hello"}],"stream":false}`},
+		{name: "antigravity", format: "antigravity", model: "deepseek-v4-flash", body: `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hello"}],"stream":false}`},
 	}
 
 	for _, tc := range tests {

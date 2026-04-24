@@ -18,7 +18,7 @@ type stubOpenAIChatCaller struct{}
 
 func (stubOpenAIChatCaller) ChatCompletions(w http.ResponseWriter, _ *http.Request) {
 	store := devcapture.Global()
-	session := store.Start("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", "acct-test", map[string]any{"model": "deepseek-chat"})
+	session := store.Start("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", "acct-test", map[string]any{"model": "deepseek-v4-flash"})
 	raw := io.NopCloser(strings.NewReader(
 		"data: {\"v\":\"hello [reference:1]\"}\n\n" +
 			"data: {\"v\":\"FINISHED\",\"p\":\"response/status\"}\n\n",
@@ -37,7 +37,7 @@ func (stubOpenAIChatCaller) ChatCompletions(w http.ResponseWriter, _ *http.Reque
 type stubOpenAIChatCallerWithContinuations struct{}
 
 func (stubOpenAIChatCallerWithContinuations) ChatCompletions(w http.ResponseWriter, _ *http.Request) {
-	recordCapturedResponse("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-chat"}, "data: {\"v\":\"hello [reference:1]\"}\n\n"+"data: [DONE]\n\n")
+	recordCapturedResponse("deepseek_completion", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4-flash"}, "data: {\"v\":\"hello [reference:1]\"}\n\n"+"data: [DONE]\n\n")
 	recordCapturedResponse("deepseek_continue", "https://chat.deepseek.com/api/v0/chat/continue", http.StatusOK, map[string]any{"chat_session_id": "session-1", "message_id": 2}, "data: {\"v\":\"continued\"}\n\n"+"data: [DONE]\n\n")
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -73,7 +73,7 @@ func TestCaptureRawSampleWritesPersistentSample(t *testing.T) {
 	reqBody := `{
 		"sample_id":"My Sample 01",
 		"api_key":"local-key",
-		"model":"deepseek-chat",
+		"model":"deepseek-v4-flash",
 		"message":"广州天气",
 		"stream":true
 	}`
@@ -130,7 +130,7 @@ func TestCaptureRawSampleCombinesContinuationCaptures(t *testing.T) {
 	reqBody := `{
 		"sample_id":"My Sample 02",
 		"api_key":"local-key",
-		"model":"deepseek-chat",
+		"model":"deepseek-v4-flash",
 		"message":"广州天气",
 		"stream":true
 	}`
@@ -194,13 +194,13 @@ func TestCaptureRawSampleReturnsErrorWhenNoNewCaptureRecorded(t *testing.T) {
 	devcapture.Global().Clear()
 	defer devcapture.Global().Clear()
 
-	recordCapturedResponse("preexisting", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-chat"}, "data: {\"v\":\"old\"}\n\n")
+	recordCapturedResponse("preexisting", "https://chat.deepseek.com/api/v0/chat/completion", http.StatusOK, map[string]any{"model": "deepseek-v4-flash"}, "data: {\"v\":\"old\"}\n\n")
 
 	h := &Handler{OpenAI: stubOpenAIChatCallerWithoutCapture{}}
 	reqBody := `{
 		"sample_id":"My Sample 03",
 		"api_key":"local-key",
-		"model":"deepseek-chat",
+		"model":"deepseek-v4-flash",
 		"message":"广州天气",
 		"stream":true
 	}`

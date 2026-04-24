@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func TestGetModelRouteDirectAndAlias(t *testing.T) {
+func TestGetModelRouteDirectOnly(t *testing.T) {
 	h := &Handler{}
 	r := chi.NewRouter()
 	RegisterRoutes(r, h)
@@ -31,21 +31,21 @@ func TestGetModelRouteDirectAndAlias(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy_alias", func(t *testing.T) {
+	t.Run("legacy_alias_rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/models/deepseek-chat", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 
-	t.Run("alias", func(t *testing.T) {
+	t.Run("third_party_alias_rejected", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/models/gpt-4.1", nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200 for alias, got %d body=%s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for alias, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 }

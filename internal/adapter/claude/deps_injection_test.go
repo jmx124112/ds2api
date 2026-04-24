@@ -18,14 +18,14 @@ func TestNormalizeClaudeRequestUsesConfigInterfaceMapping(t *testing.T) {
 	}
 	out, err := normalizeClaudeRequest(mockClaudeConfig{
 		m: map[string]string{
-			"fast": "deepseek-chat",
-			"slow": "deepseek-reasoner-search",
+			"fast": "deepseek-v4-flash",
+			"slow": "deepseek-v4-pro-thinking-search",
 		},
 	}, req)
 	if err != nil {
 		t.Fatalf("normalizeClaudeRequest error: %v", err)
 	}
-	if out.Standard.ResolvedModel != "deepseek-reasoner-search" {
+	if out.Standard.ResolvedModel != "deepseek-v4-pro-thinking-search" {
 		t.Fatalf("resolved model mismatch: got=%q", out.Standard.ResolvedModel)
 	}
 	if !out.Standard.Thinking || !out.Standard.Search {

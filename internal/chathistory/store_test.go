@@ -27,7 +27,7 @@ func TestStoreCreatesAndPersistsEntries(t *testing.T) {
 	started, err := store.Start(StartParams{
 		CallerID:  "caller:abc",
 		AccountID: "user@example.com",
-		Model:     "deepseek-chat",
+		Model:     "deepseek-v4-flash",
 		Stream:    true,
 		UserInput: "hello",
 		Messages:  []Message{{Role: "user", Content: "hello"}},
@@ -101,7 +101,7 @@ func TestStoreTrimsToConfiguredLimit(t *testing.T) {
 	}
 
 	for i := 0; i < 12; i++ {
-		entry, err := store.Start(StartParams{Model: "deepseek-chat", UserInput: "msg"})
+		entry, err := store.Start(StartParams{Model: "deepseek-v4-flash", UserInput: "msg"})
 		if err != nil {
 			t.Fatalf("start %d failed: %v", i, err)
 		}
@@ -185,7 +185,7 @@ func TestStoreConcurrentUpdatesKeepRowsValid(t *testing.T) {
 			defer wg.Done()
 			entry, err := store.Start(StartParams{
 				CallerID:  "caller:test",
-				Model:     "deepseek-chat",
+				Model:     "deepseek-v4-flash",
 				UserInput: "hello",
 			})
 			if err != nil {
