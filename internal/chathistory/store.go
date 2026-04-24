@@ -1,23 +1,23 @@
 package chathistory
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-
-	"ds2api/internal/config"
+	_ "modernc.org/sqlite"
 )
 
 const (
-	FileVersion      = 2
+	FileVersion      = 3
 	DisabledLimit    = 0
 	DefaultLimit     = 20
 	MaxLimit         = 50
@@ -32,6 +32,12 @@ var allowedLimits = map[int]struct{}{
 }
 
 var ErrDisabled = errors.New("chat history disabled")
+
+type Stats struct {
+	TotalCalls   int64 `json:"total_calls"`
+	SuccessCalls int64 `json:"success_calls"`
+	FailedCalls  int64 `json:"failed_calls"`
+}
 
 type Entry struct {
 	ID               string         `json:"id"`
@@ -85,6 +91,7 @@ type File struct {
 	Version  int            `json:"version"`
 	Limit    int            `json:"limit"`
 	Revision int64          `json:"revision"`
+	Stats    Stats          `json:"stats"`
 	Items    []SummaryEntry `json:"items"`
 }
 
@@ -111,49 +118,33 @@ type UpdateParams struct {
 	Completed        bool
 }
 
-type detailEnvelope struct {
-	Version int   `json:"version"`
-	Item    Entry `json:"item"`
+type stateRow struct {
+	Version      int
+	Limit        int
+	Revision     int64
+	TotalCalls   int64
+	SuccessCalls int64
+	FailedCalls  int64
 }
 
-type legacyFile struct {
-	Version int     `json:"version"`
-	Limit   int     `json:"limit"`
-	Items   []Entry `json:"items"`
-}
-
-type legacyProbe struct {
-	Items []map[string]json.RawMessage `json:"items"`
+type queryer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 type Store struct {
-	mu        sync.Mutex
-	path      string
-	detailDir string
-	state     File
-	details   map[string]Entry
-	dirty     map[string]struct{}
-	deleted   map[string]struct{}
-	err       error
+	mu   sync.Mutex
+	path string
+	db   *sql.DB
+	err  error
 }
 
 func New(path string) *Store {
-	s := &Store{
-		path:      strings.TrimSpace(path),
-		detailDir: strings.TrimSpace(path) + ".d",
-		state: File{
-			Version:  FileVersion,
-			Limit:    DefaultLimit,
-			Revision: 0,
-			Items:    []SummaryEntry{},
-		},
-		details: map[string]Entry{},
-		dirty:   map[string]struct{}{},
-		deleted: map[string]struct{}{},
-	}
+	s := &Store{path: strings.TrimSpace(path)}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.err = s.loadLocked()
+	s.err = s.initLocked()
 	return s
 }
 
@@ -168,7 +159,23 @@ func (s *Store) DetailDir() string {
 	if s == nil {
 		return ""
 	}
-	return s.detailDir
+	return strings.TrimSpace(s.path) + ".d"
+}
+
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("close chat history sqlite: %w", err)
+	}
+	s.db = nil
+	return nil
 }
 
 func (s *Store) Err() error {
@@ -189,7 +196,7 @@ func (s *Store) Snapshot() (File, error) {
 	if s.err != nil {
 		return File{}, s.err
 	}
-	return cloneFile(s.state), nil
+	return s.snapshotLocked()
 }
 
 func (s *Store) Enabled() bool {
@@ -201,7 +208,11 @@ func (s *Store) Enabled() bool {
 	if s.err != nil {
 		return false
 	}
-	return s.state.Limit != DisabledLimit
+	state, err := s.loadStateLocked(s.db)
+	if err != nil {
+		return false
+	}
+	return state.Limit != DisabledLimit
 }
 
 func (s *Store) Get(id string) (Entry, error) {
@@ -213,9 +224,13 @@ func (s *Store) Get(id string) (Entry, error) {
 	if s.err != nil {
 		return Entry{}, s.err
 	}
-	item, ok := s.details[strings.TrimSpace(id)]
-	if !ok {
-		return Entry{}, errors.New("chat history entry not found")
+	target := strings.TrimSpace(id)
+	if target == "" {
+		return Entry{}, errors.New("history id is required")
+	}
+	item, err := s.getEntryLocked(s.db, target)
+	if err != nil {
+		return Entry{}, err
 	}
 	return cloneEntry(item), nil
 }
@@ -229,11 +244,28 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 	if s.err != nil {
 		return Entry{}, s.err
 	}
-	if s.state.Limit == DisabledLimit {
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return Entry{}, fmt.Errorf("begin chat history start tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
+		return Entry{}, err
+	}
+	if state.Limit == DisabledLimit {
 		return Entry{}, ErrDisabled
 	}
+
 	now := time.Now().UnixMilli()
-	revision := s.nextRevisionLocked()
+	revision := nextRevision(state.Revision)
 	entry := Entry{
 		ID:          "chat_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		Revision:    revision,
@@ -249,12 +281,22 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 		HistoryText: params.HistoryText,
 		FinalPrompt: strings.TrimSpace(params.FinalPrompt),
 	}
-	s.details[entry.ID] = entry
-	s.markDetailDirtyLocked(entry.ID)
-	s.rebuildIndexLocked()
-	if err := s.saveLocked(); err != nil {
-		return cloneEntry(entry), err
+	if err := s.insertEntryLocked(tx, entry); err != nil {
+		return Entry{}, err
 	}
+	if state.Limit > DisabledLimit {
+		if err := s.trimEntriesToLimitLocked(tx, state.Limit); err != nil {
+			return Entry{}, err
+		}
+	}
+	state.Revision = revision
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return Entry{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Entry{}, fmt.Errorf("commit chat history start tx: %w", err)
+	}
+	committed = true
 	return cloneEntry(entry), nil
 }
 
@@ -267,16 +309,34 @@ func (s *Store) Update(id string, params UpdateParams) (Entry, error) {
 	if s.err != nil {
 		return Entry{}, s.err
 	}
+
 	target := strings.TrimSpace(id)
 	if target == "" {
 		return Entry{}, errors.New("history id is required")
 	}
-	item, ok := s.details[target]
-	if !ok {
-		return Entry{}, errors.New("chat history entry not found")
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return Entry{}, fmt.Errorf("begin chat history update tx: %w", err)
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
+		return Entry{}, err
+	}
+	item, err := s.getEntryLocked(tx, target)
+	if err != nil {
+		return Entry{}, err
+	}
+
 	now := time.Now().UnixMilli()
-	item.Revision = s.nextRevisionLocked()
+	item.Revision = nextRevision(state.Revision)
 	item.UpdatedAt = now
 	if params.Status != "" {
 		item.Status = params.Status
@@ -293,12 +353,17 @@ func (s *Store) Update(id string, params UpdateParams) (Entry, error) {
 	if params.Completed {
 		item.CompletedAt = now
 	}
-	s.details[target] = item
-	s.markDetailDirtyLocked(target)
-	s.rebuildIndexLocked()
-	if err := s.saveLocked(); err != nil {
+	if err := s.updateEntryLocked(tx, item); err != nil {
 		return Entry{}, err
 	}
+	state.Revision = item.Revision
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return Entry{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Entry{}, fmt.Errorf("commit chat history update tx: %w", err)
+	}
+	committed = true
 	return cloneEntry(item), nil
 }
 
@@ -315,16 +380,41 @@ func (s *Store) Delete(id string) error {
 	if target == "" {
 		return errors.New("history id is required")
 	}
-	if _, ok := s.details[target]; !ok {
-		return errors.New("chat history entry not found")
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("begin chat history delete tx: %w", err)
 	}
-	s.markDetailDeletedLocked(target)
-	delete(s.details, target)
-	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
-	if err := s.saveLocked(); err != nil {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
 		return err
 	}
+	res, err := tx.ExecContext(context.Background(), `DELETE FROM entries WHERE id = ?`, target)
+	if err != nil {
+		return fmt.Errorf("delete chat history entry: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read chat history delete rows affected: %w", err)
+	}
+	if affected == 0 {
+		return errors.New("chat history entry not found")
+	}
+	state.Revision = nextRevision(state.Revision)
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit chat history delete tx: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -337,15 +427,33 @@ func (s *Store) Clear() error {
 	if s.err != nil {
 		return s.err
 	}
-	for id := range s.details {
-		s.markDetailDeletedLocked(id)
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("begin chat history clear tx: %w", err)
 	}
-	s.details = map[string]Entry{}
-	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
-	if err := s.saveLocked(); err != nil {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM entries`); err != nil {
+		return fmt.Errorf("clear chat history entries: %w", err)
+	}
+	state.Revision = nextRevision(state.Revision)
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit chat history clear tx: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -361,193 +469,478 @@ func (s *Store) SetLimit(limit int) (File, error) {
 	if !isAllowedLimit(limit) {
 		return File{}, fmt.Errorf("unsupported chat history limit: %d", limit)
 	}
-	s.state.Limit = limit
-	s.nextRevisionLocked()
-	s.rebuildIndexLocked()
-	if err := s.saveLocked(); err != nil {
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return File{}, fmt.Errorf("begin chat history set limit tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
 		return File{}, err
 	}
-	return cloneFile(s.state), nil
+	state.Limit = limit
+	state.Revision = nextRevision(state.Revision)
+	if state.Limit > DisabledLimit {
+		if err := s.trimEntriesToLimitLocked(tx, state.Limit); err != nil {
+			return File{}, err
+		}
+	}
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return File{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return File{}, fmt.Errorf("commit chat history set limit tx: %w", err)
+	}
+	committed = true
+
+	return s.snapshotLocked()
 }
 
-func (s *Store) loadLocked() error {
-	if strings.TrimSpace(s.path) == "" {
-		return errors.New("chat history path is required")
+func (s *Store) RecordCall(statusCode int) error {
+	if s == nil {
+		return errors.New("chat history store is nil")
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil && filepath.Dir(s.path) != "." {
-		return fmt.Errorf("create chat history dir: %w", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
 	}
-	if err := os.MkdirAll(s.detailDir, 0o755); err != nil {
-		return fmt.Errorf("create chat history detail dir: %w", err)
-	}
-
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if saveErr := s.saveLocked(); saveErr != nil {
-				config.Logger.Warn("[chat_history] bootstrap write failed", "path", s.path, "error", saveErr)
-			}
-			return nil
-		}
-		return fmt.Errorf("read chat history index: %w", err)
-	}
-
-	legacy, legacyOK, legacyErr := parseLegacy(raw)
-	if legacyErr != nil {
-		return legacyErr
-	}
-	if legacyOK {
-		s.loadLegacyLocked(legacy)
-		if err := s.saveLocked(); err != nil {
-			config.Logger.Warn("[chat_history] legacy migration writeback failed", "path", s.path, "error", err)
-		}
+	if statusCode <= 0 {
 		return nil
 	}
 
-	var state File
-	if err := json.Unmarshal(raw, &state); err != nil {
-		return fmt.Errorf("decode chat history index: %w", err)
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("begin chat history record call tx: %w", err)
 	}
-	if state.Version == 0 {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	state, err := s.loadStateLocked(tx)
+	if err != nil {
+		return err
+	}
+	state.TotalCalls++
+	if statusCode >= httpStatusSuccessLowerBound && statusCode < httpStatusFailureLowerBound {
+		state.SuccessCalls++
+	}
+	if statusCode >= httpStatusFailureLowerBound {
+		state.FailedCalls++
+	}
+	state.Revision = nextRevision(state.Revision)
+	if err := s.saveStateLocked(tx, state); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit chat history record call tx: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+const (
+	httpStatusSuccessLowerBound = 200
+	httpStatusFailureLowerBound = 400
+)
+
+func (s *Store) initLocked() error {
+	if strings.TrimSpace(s.path) == "" {
+		return errors.New("chat history path is required")
+	}
+	dir := filepath.Dir(s.path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create chat history dir: %w", err)
+		}
+	}
+
+	db, err := sql.Open("sqlite", s.path)
+	if err != nil {
+		return fmt.Errorf("open chat history sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("ping chat history sqlite: %w", err)
+	}
+	s.db = db
+
+	if _, err := s.db.ExecContext(context.Background(), `PRAGMA busy_timeout = 5000`); err != nil {
+		return fmt.Errorf("set chat history sqlite busy timeout: %w", err)
+	}
+
+	if err := s.ensureSchemaLocked(); err != nil {
+		return err
+	}
+	state, err := s.loadStateLocked(s.db)
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	if state.Version != FileVersion {
 		state.Version = FileVersion
+		changed = true
 	}
 	if !isAllowedLimit(state.Limit) {
 		state.Limit = DefaultLimit
+		changed = true
 	}
-	s.state = cloneFile(state)
-	s.details = map[string]Entry{}
-	for _, item := range state.Items {
-		detail, err := readDetailFile(filepath.Join(s.detailDir, item.ID+".json"))
-		if err != nil {
+	if changed {
+		state.Revision = nextRevision(state.Revision)
+		if err := s.saveStateLocked(s.db, state); err != nil {
 			return err
 		}
-		s.details[item.ID] = detail
-	}
-	s.rebuildIndexLocked()
-	if saveErr := s.saveLocked(); saveErr != nil {
-		config.Logger.Warn("[chat_history] index rewrite failed", "path", s.path, "error", saveErr)
 	}
 	return nil
 }
 
-func (s *Store) loadLegacyLocked(legacy legacyFile) {
-	s.state.Version = FileVersion
-	s.state.Limit = legacy.Limit
-	if !isAllowedLimit(s.state.Limit) {
-		s.state.Limit = DefaultLimit
+func (s *Store) ensureSchemaLocked() error {
+	if s.db == nil {
+		return errors.New("chat history sqlite is not initialized")
 	}
-	s.details = map[string]Entry{}
-	s.dirty = map[string]struct{}{}
-	s.deleted = map[string]struct{}{}
-	maxRevision := int64(0)
-	for _, item := range legacy.Items {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		item.Messages = cloneMessages(item.Messages)
-		if item.Revision == 0 {
-			if item.UpdatedAt > 0 {
-				item.Revision = item.UpdatedAt
-			} else {
-				item.Revision = time.Now().UnixNano()
-			}
-		}
-		if item.Revision > maxRevision {
-			maxRevision = item.Revision
-		}
-		s.details[item.ID] = item
-		s.markDetailDirtyLocked(item.ID)
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS state (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			version INTEGER NOT NULL,
+			limit_value INTEGER NOT NULL,
+			revision INTEGER NOT NULL,
+			total_calls INTEGER NOT NULL,
+			success_calls INTEGER NOT NULL,
+			failed_calls INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS entries (
+			id TEXT PRIMARY KEY,
+			revision INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			completed_at INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			caller_id TEXT NOT NULL DEFAULT '',
+			account_id TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			stream INTEGER NOT NULL DEFAULT 0,
+			user_input TEXT NOT NULL DEFAULT '',
+			messages_json TEXT NOT NULL DEFAULT '[]',
+			history_text TEXT NOT NULL DEFAULT '',
+			final_prompt TEXT NOT NULL DEFAULT '',
+			reasoning_content TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL DEFAULT '',
+			error_text TEXT NOT NULL DEFAULT '',
+			status_code INTEGER NOT NULL DEFAULT 0,
+			elapsed_ms INTEGER NOT NULL DEFAULT 0,
+			finish_reason TEXT NOT NULL DEFAULT '',
+			usage_json TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON entries(updated_at DESC, created_at DESC)`,
+		fmt.Sprintf(
+			`INSERT INTO state(id, version, limit_value, revision, total_calls, success_calls, failed_calls)
+			 VALUES (1, %d, %d, 0, 0, 0, 0)
+			 ON CONFLICT(id) DO NOTHING`,
+			FileVersion,
+			DefaultLimit,
+		),
 	}
-	s.state.Revision = maxRevision
-	s.rebuildIndexLocked()
+	for _, stmt := range stmts {
+		if _, err := s.db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("init chat history sqlite schema: %w", err)
+		}
+	}
+	return nil
 }
 
-func (s *Store) saveLocked() error {
-	s.state.Version = FileVersion
-	if !isAllowedLimit(s.state.Limit) {
-		s.state.Limit = DefaultLimit
-	}
-	s.rebuildIndexLocked()
-
-	if err := os.MkdirAll(s.detailDir, 0o755); err != nil {
-		return fmt.Errorf("create chat history detail dir: %w", err)
-	}
-	for _, id := range sortedDetailIDs(s.deleted) {
-		path := filepath.Join(s.detailDir, id+".json")
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove stale chat history detail: %w", err)
-		}
-	}
-	for _, id := range sortedDetailIDs(s.dirty) {
-		item, ok := s.details[id]
-		if !ok {
-			continue
-		}
-		path := filepath.Join(s.detailDir, id+".json")
-		payload, err := json.MarshalIndent(detailEnvelope{
-			Version: FileVersion,
-			Item:    item,
-		}, "", "  ")
-		if err != nil {
-			return fmt.Errorf("encode chat history detail: %w", err)
-		}
-		if err := writeFileAtomic(path, append(payload, '\n')); err != nil {
-			return err
-		}
-	}
-
-	payload, err := json.MarshalIndent(s.state, "", "  ")
+func (s *Store) snapshotLocked() (File, error) {
+	state, err := s.loadStateLocked(s.db)
 	if err != nil {
-		return fmt.Errorf("encode chat history index: %w", err)
+		return File{}, err
 	}
-	if err := writeFileAtomic(s.path, append(payload, '\n')); err != nil {
+	items, err := s.listSummaryEntriesLocked(s.db, state.Limit)
+	if err != nil {
+		return File{}, err
+	}
+	return File{
+		Version:  state.Version,
+		Limit:    state.Limit,
+		Revision: state.Revision,
+		Stats: Stats{
+			TotalCalls:   state.TotalCalls,
+			SuccessCalls: state.SuccessCalls,
+			FailedCalls:  state.FailedCalls,
+		},
+		Items: items,
+	}, nil
+}
+
+func (s *Store) loadStateLocked(q queryer) (stateRow, error) {
+	var state stateRow
+	err := q.QueryRowContext(
+		context.Background(),
+		`SELECT version, limit_value, revision, total_calls, success_calls, failed_calls FROM state WHERE id = 1`,
+	).Scan(
+		&state.Version,
+		&state.Limit,
+		&state.Revision,
+		&state.TotalCalls,
+		&state.SuccessCalls,
+		&state.FailedCalls,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return stateRow{}, errors.New("chat history state is not initialized")
+		}
+		return stateRow{}, fmt.Errorf("read chat history state: %w", err)
+	}
+	return state, nil
+}
+
+func (s *Store) saveStateLocked(q queryer, state stateRow) error {
+	if !isAllowedLimit(state.Limit) {
+		state.Limit = DefaultLimit
+	}
+	if _, err := q.ExecContext(
+		context.Background(),
+		`UPDATE state
+		 SET version = ?, limit_value = ?, revision = ?, total_calls = ?, success_calls = ?, failed_calls = ?
+		 WHERE id = 1`,
+		state.Version,
+		state.Limit,
+		state.Revision,
+		state.TotalCalls,
+		state.SuccessCalls,
+		state.FailedCalls,
+	); err != nil {
+		return fmt.Errorf("write chat history state: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) insertEntryLocked(q queryer, item Entry) error {
+	messagesJSON, err := json.Marshal(cloneMessages(item.Messages))
+	if err != nil {
+		return fmt.Errorf("encode chat history messages: %w", err)
+	}
+	usageJSON, err := encodeUsage(item.Usage)
+	if err != nil {
 		return err
 	}
-	s.clearPendingDetailChangesLocked()
+	if _, err := q.ExecContext(
+		context.Background(),
+		`INSERT INTO entries (
+			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model, stream,
+			user_input, messages_json, history_text, final_prompt, reasoning_content, content, error_text,
+			status_code, elapsed_ms, finish_reason, usage_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID,
+		item.Revision,
+		item.CreatedAt,
+		item.UpdatedAt,
+		item.CompletedAt,
+		item.Status,
+		item.CallerID,
+		item.AccountID,
+		item.Model,
+		boolToInt(item.Stream),
+		item.UserInput,
+		string(messagesJSON),
+		item.HistoryText,
+		item.FinalPrompt,
+		item.ReasoningContent,
+		item.Content,
+		item.Error,
+		item.StatusCode,
+		item.ElapsedMs,
+		item.FinishReason,
+		usageJSON,
+	); err != nil {
+		return fmt.Errorf("insert chat history entry: %w", err)
+	}
 	return nil
 }
 
-func (s *Store) rebuildIndexLocked() {
-	summaries := make([]SummaryEntry, 0, len(s.details))
-	for _, item := range s.details {
-		summaries = append(summaries, summaryFromEntry(item))
+func (s *Store) updateEntryLocked(q queryer, item Entry) error {
+	messagesJSON, err := json.Marshal(cloneMessages(item.Messages))
+	if err != nil {
+		return fmt.Errorf("encode chat history messages: %w", err)
 	}
-	sort.Slice(summaries, func(i, j int) bool {
-		if summaries[i].UpdatedAt == summaries[j].UpdatedAt {
-			return summaries[i].CreatedAt > summaries[j].CreatedAt
-		}
-		return summaries[i].UpdatedAt > summaries[j].UpdatedAt
-	})
-	if s.state.Limit < DisabledLimit || !isAllowedLimit(s.state.Limit) {
-		s.state.Limit = DefaultLimit
+	usageJSON, err := encodeUsage(item.Usage)
+	if err != nil {
+		return err
 	}
-	if s.state.Limit == DisabledLimit {
-		s.state.Items = summaries
-		return
+	if _, err := q.ExecContext(
+		context.Background(),
+		`UPDATE entries SET
+			revision = ?, updated_at = ?, completed_at = ?, status = ?, caller_id = ?, account_id = ?, model = ?, stream = ?,
+			user_input = ?, messages_json = ?, history_text = ?, final_prompt = ?, reasoning_content = ?, content = ?,
+			error_text = ?, status_code = ?, elapsed_ms = ?, finish_reason = ?, usage_json = ?
+		WHERE id = ?`,
+		item.Revision,
+		item.UpdatedAt,
+		item.CompletedAt,
+		item.Status,
+		item.CallerID,
+		item.AccountID,
+		item.Model,
+		boolToInt(item.Stream),
+		item.UserInput,
+		string(messagesJSON),
+		item.HistoryText,
+		item.FinalPrompt,
+		item.ReasoningContent,
+		item.Content,
+		item.Error,
+		item.StatusCode,
+		item.ElapsedMs,
+		item.FinishReason,
+		usageJSON,
+		item.ID,
+	); err != nil {
+		return fmt.Errorf("update chat history entry: %w", err)
 	}
-	if len(summaries) > s.state.Limit {
-		keep := make(map[string]struct{}, s.state.Limit)
-		for _, item := range summaries[:s.state.Limit] {
-			keep[item.ID] = struct{}{}
-		}
-		for id := range s.details {
-			if _, ok := keep[id]; !ok {
-				s.markDetailDeletedLocked(id)
-				delete(s.details, id)
-			}
-		}
-		summaries = summaries[:s.state.Limit]
-	}
-	s.state.Items = summaries
+	return nil
 }
 
-func (s *Store) nextRevisionLocked() int64 {
-	next := time.Now().UnixNano()
-	if next <= s.state.Revision {
-		next = s.state.Revision + 1
+func (s *Store) trimEntriesToLimitLocked(q queryer, limit int) error {
+	if limit <= DisabledLimit {
+		return nil
 	}
-	s.state.Revision = next
-	return next
+	if _, err := q.ExecContext(
+		context.Background(),
+		`DELETE FROM entries
+		 WHERE id IN (
+			SELECT id FROM entries
+			ORDER BY updated_at DESC, created_at DESC
+			LIMIT -1 OFFSET ?
+		 )`,
+		limit,
+	); err != nil {
+		return fmt.Errorf("trim chat history entries: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) listSummaryEntriesLocked(q queryer, limit int) ([]SummaryEntry, error) {
+	query := `SELECT
+		id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model,
+		stream, user_input, status_code, elapsed_ms, finish_reason, reasoning_content, content, error_text
+	FROM entries
+	ORDER BY updated_at DESC, created_at DESC`
+	args := []any{}
+	if limit > DisabledLimit {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := q.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list chat history summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]SummaryEntry, 0)
+	for rows.Next() {
+		var (
+			item       Entry
+			streamFlag int
+		)
+		if err := rows.Scan(
+			&item.ID,
+			&item.Revision,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+			&item.CompletedAt,
+			&item.Status,
+			&item.CallerID,
+			&item.AccountID,
+			&item.Model,
+			&streamFlag,
+			&item.UserInput,
+			&item.StatusCode,
+			&item.ElapsedMs,
+			&item.FinishReason,
+			&item.ReasoningContent,
+			&item.Content,
+			&item.Error,
+		); err != nil {
+			return nil, fmt.Errorf("scan chat history summary: %w", err)
+		}
+		item.Stream = streamFlag == 1
+		out = append(out, summaryFromEntry(item))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate chat history summaries: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) getEntryLocked(q queryer, id string) (Entry, error) {
+	var (
+		item         Entry
+		streamFlag   int
+		messagesJSON string
+		usageJSON    string
+	)
+	err := q.QueryRowContext(
+		context.Background(),
+		`SELECT
+			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model, stream,
+			user_input, messages_json, history_text, final_prompt, reasoning_content, content, error_text,
+			status_code, elapsed_ms, finish_reason, usage_json
+		FROM entries
+		WHERE id = ?`,
+		id,
+	).Scan(
+		&item.ID,
+		&item.Revision,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+		&item.CompletedAt,
+		&item.Status,
+		&item.CallerID,
+		&item.AccountID,
+		&item.Model,
+		&streamFlag,
+		&item.UserInput,
+		&messagesJSON,
+		&item.HistoryText,
+		&item.FinalPrompt,
+		&item.ReasoningContent,
+		&item.Content,
+		&item.Error,
+		&item.StatusCode,
+		&item.ElapsedMs,
+		&item.FinishReason,
+		&usageJSON,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Entry{}, errors.New("chat history entry not found")
+		}
+		return Entry{}, fmt.Errorf("read chat history entry: %w", err)
+	}
+	item.Stream = streamFlag == 1
+
+	messages, err := decodeMessages(messagesJSON)
+	if err != nil {
+		return Entry{}, err
+	}
+	item.Messages = messages
+	usage, err := decodeUsage(usageJSON)
+	if err != nil {
+		return Entry{}, err
+	}
+	item.Usage = usage
+	return item, nil
 }
 
 func summaryFromEntry(item Entry) SummaryEntry {
@@ -588,87 +981,54 @@ func buildPreview(item Entry) string {
 	return candidate
 }
 
-func readDetailFile(path string) (Entry, error) {
-	raw, err := os.ReadFile(path)
+func encodeUsage(in map[string]any) (string, error) {
+	if in == nil {
+		return "", nil
+	}
+	body, err := json.Marshal(cloneMap(in))
 	if err != nil {
-		return Entry{}, fmt.Errorf("read chat history detail: %w", err)
+		return "", fmt.Errorf("encode chat history usage: %w", err)
 	}
-	var env detailEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return Entry{}, fmt.Errorf("decode chat history detail: %w", err)
-	}
-	return cloneEntry(env.Item), nil
+	return string(body), nil
 }
 
-func parseLegacy(raw []byte) (legacyFile, bool, error) {
-	var legacy legacyFile
-	if err := json.Unmarshal(raw, &legacy); err != nil {
-		return legacyFile{}, false, nil
+func decodeUsage(raw string) (map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
 	}
-	if len(legacy.Items) == 0 {
-		return legacy, false, nil
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode chat history usage: %w", err)
 	}
-	var probe legacyProbe
-	if err := json.Unmarshal(raw, &probe); err == nil {
-		for _, item := range probe.Items {
-			if _, ok := item["detail_revision"]; ok {
-				return legacy, false, nil
-			}
-		}
-	}
-	return legacy, true, nil
+	return out, nil
 }
 
-func writeFileAtomic(path string, body []byte) error {
-	dir := filepath.Dir(path)
-	if dir == "" {
-		dir = "."
+func decodeMessages(raw string) ([]Message, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []Message{}, nil
 	}
-	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("create chat history dir: %w", err)
-		}
+	var out []Message
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode chat history messages: %w", err)
 	}
-	tmpFile, err := os.CreateTemp(dir, ".chat-history-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp chat history: %w", err)
+	return cloneMessages(out), nil
+}
+
+func nextRevision(current int64) int64 {
+	next := time.Now().UnixNano()
+	if next <= current {
+		next = current + 1
 	}
-	tmpPath := tmpFile.Name()
-	cleanup := func() error {
-		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove temp chat history: %w", err)
-		}
-		return nil
+	return next
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
 	}
-	withCleanup := func(primary error, closeErr error) error {
-		errs := []error{primary}
-		if closeErr != nil {
-			errs = append(errs, fmt.Errorf("close temp chat history: %w", closeErr))
-		}
-		if cleanupErr := cleanup(); cleanupErr != nil {
-			errs = append(errs, cleanupErr)
-		}
-		return errors.Join(errs...)
-	}
-	if _, err := tmpFile.Write(body); err != nil {
-		return withCleanup(fmt.Errorf("write temp chat history: %w", err), tmpFile.Close())
-	}
-	if err := tmpFile.Sync(); err != nil {
-		return withCleanup(fmt.Errorf("sync temp chat history: %w", err), tmpFile.Close())
-	}
-	if err := tmpFile.Close(); err != nil {
-		if cleanupErr := cleanup(); cleanupErr != nil {
-			return errors.Join(fmt.Errorf("close temp chat history: %w", err), cleanupErr)
-		}
-		return fmt.Errorf("close temp chat history: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		if cleanupErr := cleanup(); cleanupErr != nil {
-			return errors.Join(fmt.Errorf("promote temp chat history: %w", err), cleanupErr)
-		}
-		return fmt.Errorf("promote temp chat history: %w", err)
-	}
-	return nil
+	return 0
 }
 
 func ListETag(revision int64) string {
@@ -682,64 +1042,6 @@ func DetailETag(id string, revision int64) string {
 func isAllowedLimit(limit int) bool {
 	_, ok := allowedLimits[limit]
 	return ok
-}
-
-func (s *Store) markDetailDirtyLocked(id string) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return
-	}
-	if s.dirty == nil {
-		s.dirty = map[string]struct{}{}
-	}
-	if s.deleted == nil {
-		s.deleted = map[string]struct{}{}
-	}
-	s.dirty[id] = struct{}{}
-	delete(s.deleted, id)
-}
-
-func (s *Store) markDetailDeletedLocked(id string) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return
-	}
-	if s.dirty == nil {
-		s.dirty = map[string]struct{}{}
-	}
-	if s.deleted == nil {
-		s.deleted = map[string]struct{}{}
-	}
-	s.deleted[id] = struct{}{}
-	delete(s.dirty, id)
-}
-
-func (s *Store) clearPendingDetailChangesLocked() {
-	s.dirty = map[string]struct{}{}
-	s.deleted = map[string]struct{}{}
-}
-
-func sortedDetailIDs(ids map[string]struct{}) []string {
-	if len(ids) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(ids))
-	for id := range ids {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func cloneFile(in File) File {
-	out := File{
-		Version:  in.Version,
-		Limit:    in.Limit,
-		Revision: in.Revision,
-		Items:    make([]SummaryEntry, len(in.Items)),
-	}
-	copy(out.Items, in.Items)
-	return out
 }
 
 func cloneEntry(item Entry) Entry {

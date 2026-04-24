@@ -29,7 +29,12 @@ func newChatHistoryAdminHarness(t *testing.T) (*Handler, *chathistory.Store) {
 	if err != nil {
 		t.Fatalf("load config store failed: %v", err)
 	}
-	historyStore := chathistory.New(filepath.Join(dir, "chat_history.json"))
+	historyStore := chathistory.New(filepath.Join(dir, "chat_history.db"))
+	t.Cleanup(func() {
+		if err := historyStore.Close(); err != nil {
+			t.Fatalf("close chat history store failed: %v", err)
+		}
+	})
 	return &Handler{Store: store, ChatHistory: historyStore}, historyStore
 }
 
@@ -51,6 +56,12 @@ func TestGetChatHistoryAndUpdateSettings(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update history failed: %v", err)
 	}
+	if err := historyStore.RecordCall(http.StatusOK); err != nil {
+		t.Fatalf("record success call failed: %v", err)
+	}
+	if err := historyStore.RecordCall(http.StatusBadRequest); err != nil {
+		t.Fatalf("record failure call failed: %v", err)
+	}
 
 	r := chi.NewRouter()
 	RegisterRoutes(r, h)
@@ -70,6 +81,13 @@ func TestGetChatHistoryAndUpdateSettings(t *testing.T) {
 	items, _ := payload["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("expected one history item, got %#v", payload)
+	}
+	stats, ok := payload["stats"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected stats object in payload, got %#v", payload["stats"])
+	}
+	if stats["total_calls"] != float64(2) || stats["success_calls"] != float64(1) || stats["failed_calls"] != float64(1) {
+		t.Fatalf("unexpected initial stats: %#v", stats)
 	}
 	if rec.Header().Get("ETag") == "" {
 		t.Fatalf("expected list etag header")

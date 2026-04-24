@@ -38,7 +38,7 @@ func RawStreamSampleRoot() string {
 }
 
 func ChatHistoryPath() string {
-	return ResolvePath("DS2API_CHAT_HISTORY_PATH", "data/chat_history.json")
+	return ResolvePath("DS2API_CHAT_HISTORY_PATH", "data/chat_history.db")
 }
 
 func StaticAdminDir() string {

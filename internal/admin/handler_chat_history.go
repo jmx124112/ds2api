@@ -35,6 +35,7 @@ func (h *Handler) getChatHistory(w http.ResponseWriter, r *http.Request) {
 		"version":  snapshot.Version,
 		"limit":    snapshot.Limit,
 		"revision": snapshot.Revision,
+		"stats":    snapshot.Stats,
 		"items":    snapshot.Items,
 		"path":     store.Path(),
 	})

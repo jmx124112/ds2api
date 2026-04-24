@@ -1170,6 +1170,16 @@ data: {"type":"message_stop"}
 {"success":true,"detail":"capture logs cleared"}
 ```
 
+### `GET /admin/chat-history`
+
+返回对话历史列表时会额外包含累计调用统计：
+
+- `stats.total_calls`
+- `stats.success_calls`
+- `stats.failed_calls`
+
+统计口径为业务转发接口全量累计（不受历史保留条数影响，清空历史也不会重置统计）。
+
 ---
 
 ## 错误响应格式

@@ -1167,6 +1167,16 @@ Clears packet-capture entries:
 {"success":true,"detail":"capture logs cleared"}
 ```
 
+### `GET /admin/chat-history`
+
+The chat-history list response now also includes cumulative call counters:
+
+- `stats.total_calls`
+- `stats.success_calls`
+- `stats.failed_calls`
+
+These counters are cumulative for business forwarding endpoints, are not affected by history retention limits, and are not reset when history entries are cleared.
+
 ---
 
 ## Error Payloads

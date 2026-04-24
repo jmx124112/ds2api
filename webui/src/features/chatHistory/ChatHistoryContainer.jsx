@@ -8,6 +8,7 @@ const LIMIT_OPTIONS = [0, 10, 20, 50]
 const DISABLED_LIMIT = 0
 const MESSAGE_COLLAPSE_AT = 700
 const VIEW_MODE_KEY = 'ds2api_chat_history_view_mode'
+const EMPTY_STATS = { total_calls: 0, success_calls: 0, failed_calls: 0 }
 
 function formatDateTime(value, lang) {
     if (!value) return '-'
@@ -29,6 +30,12 @@ function formatElapsed(ms, t) {
     if (!ms) return t('chatHistory.metaUnknown')
     if (ms < 1000) return `${ms}ms`
     return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)}s`
+}
+
+function formatStatValue(value) {
+    const num = Number(value || 0)
+    if (!Number.isFinite(num)) return '0'
+    return num.toLocaleString()
 }
 
 function previewText(item) {
@@ -291,6 +298,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const { t, lang } = useI18n()
     const apiFetch = authFetch || fetch
     const [items, setItems] = useState([])
+    const [stats, setStats] = useState(EMPTY_STATS)
     const [limit, setLimit] = useState(20)
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
@@ -359,6 +367,11 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
             }
             listETagRef.current = res.headers.get('ETag') || ''
             setLimit(typeof data.limit === 'number' ? data.limit : 20)
+            setStats({
+                total_calls: Number(data?.stats?.total_calls || 0),
+                success_calls: Number(data?.stats?.success_calls || 0),
+                failed_calls: Number(data?.stats?.failed_calls || 0),
+            })
             syncItems(Array.isArray(data.items) ? data.items : [])
         } catch (error) {
             setDetail(error.message || t('chatHistory.loadFailed'))
@@ -594,6 +607,20 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                 <div>
                     <div className="text-sm font-semibold text-foreground">{t('chatHistory.retentionTitle')}</div>
                     <div className="text-xs text-muted-foreground mt-1">{t('chatHistory.retentionDesc')}</div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-lg border border-border bg-background px-3 py-2">
+                            <div className="text-[11px] text-muted-foreground">{t('chatHistory.statsTotal')}</div>
+                            <div className="text-sm font-semibold text-foreground">{formatStatValue(stats.total_calls)}</div>
+                        </div>
+                        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
+                            <div className="text-[11px] text-emerald-600">{t('chatHistory.statsSuccess')}</div>
+                            <div className="text-sm font-semibold text-emerald-600">{formatStatValue(stats.success_calls)}</div>
+                        </div>
+                        <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2">
+                            <div className="text-[11px] text-destructive">{t('chatHistory.statsFailed')}</div>
+                            <div className="text-sm font-semibold text-destructive">{formatStatValue(stats.failed_calls)}</div>
+                        </div>
+                    </div>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
                     {LIMIT_OPTIONS.map(option => (

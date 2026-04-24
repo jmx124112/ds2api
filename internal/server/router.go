@@ -68,6 +68,7 @@ func NewApp() (*App, error) {
 	r.Use(middleware.Recoverer)
 	r.Use(cors)
 	r.Use(timeout(0))
+	r.Use(businessCallMetrics(chatHistoryStore))
 
 	healthzHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
