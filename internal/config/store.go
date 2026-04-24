@@ -1,20 +1,32 @@
 package config
 
 import (
+	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+const (
+	configSchemaVersion = 1
+	configStateRowID    = 1
 )
 
 type Store struct {
 	mu      sync.RWMutex
 	cfg     Config
 	path    string
-	fromEnv bool
+	db      *sql.DB
 	keyMap  map[string]struct{} // O(1) API key lookup index
 	accMap  map[string]int      // O(1) account lookup: identifier -> slice index
 	accTest map[string]string   // runtime-only account test status cache
@@ -42,85 +54,131 @@ func LoadStoreWithError() (*Store, error) {
 }
 
 func loadStore() (*Store, error) {
-	cfg, fromEnv, err := loadConfig()
+	dbPath := ConfigPath()
+	db, err := openConfigSQLite(dbPath)
+	if err != nil {
+		return &Store{cfg: Config{}, path: dbPath}, err
+	}
+	cfg, err := loadConfigFromSQLite(db)
 	cfg.NormalizeCredentials()
+	cfg.DropInvalidAccounts()
 	if validateErr := ValidateConfig(cfg); validateErr != nil {
 		err = errors.Join(err, validateErr)
 	}
-	return &Store{cfg: cfg, path: ConfigPath(), fromEnv: fromEnv}, err
+	store := &Store{
+		cfg:  cfg.Clone(),
+		path: dbPath,
+		db:   db,
+	}
+	if saveErr := store.saveLocked(); saveErr != nil {
+		err = errors.Join(err, saveErr)
+	}
+	return store, err
 }
 
 func loadConfig() (Config, bool, error) {
-	rawCfg := strings.TrimSpace(os.Getenv("DS2API_CONFIG_JSON"))
-	if rawCfg != "" {
-		cfg, err := parseConfigString(rawCfg)
-		if err != nil {
-			if !IsVercel() && envWritebackEnabled() {
-				if fileCfg, fileErr := loadConfigFromFile(ConfigPath()); fileErr == nil {
-					return fileCfg, false, nil
-				}
-			}
-			return cfg, true, err
-		}
-		cfg.ClearAccountTokens()
-		cfg.DropInvalidAccounts()
-		if IsVercel() || !envWritebackEnabled() {
-			return cfg, true, err
-		}
-		content, fileErr := os.ReadFile(ConfigPath())
-		if fileErr == nil {
-			var fileCfg Config
-			if unmarshalErr := json.Unmarshal(content, &fileCfg); unmarshalErr == nil {
-				fileCfg.DropInvalidAccounts()
-				return fileCfg, false, err
-			}
-		}
-		if errors.Is(fileErr, os.ErrNotExist) {
-			if validateErr := ValidateConfig(cfg); validateErr != nil {
-				return cfg, true, validateErr
-			}
-			if writeErr := writeConfigFile(ConfigPath(), cfg.Clone()); writeErr == nil {
-				return cfg, false, err
-			} else {
-				Logger.Warn("[config] env writeback bootstrap failed", "error", writeErr)
-			}
-		}
-		return cfg, true, err
-	}
-
-	cfg, err := loadConfigFromFile(ConfigPath())
-	if err != nil {
-		if IsVercel() {
-			// Vercel one-click deploy may start without a writable/present config file.
-			// Keep an in-memory config so users can bootstrap via WebUI then sync env.
-			return Config{}, true, nil
-		}
+	store, err := loadStore()
+	if store == nil {
 		return Config{}, false, err
 	}
-	if IsVercel() {
-		// Vercel filesystem is ephemeral/read-only for runtime writes; avoid save errors.
-		return cfg, true, nil
+	cfg := store.Snapshot()
+	if closeErr := store.Close(); closeErr != nil {
+		err = errors.Join(err, closeErr)
 	}
-	return cfg, false, nil
+	return cfg, false, err
 }
 
-func loadConfigFromFile(path string) (Config, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, err
+func openConfigSQLite(path string) (*sql.DB, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("config sqlite path is required")
 	}
-	var cfg Config
-	if err := json.Unmarshal(content, &cfg); err != nil {
-		return Config{}, err
-	}
-	cfg.NormalizeCredentials()
-	cfg.DropInvalidAccounts()
-	if strings.Contains(string(content), `"test_status"`) && !IsVercel() {
-		if b, err := json.MarshalIndent(cfg, "", "  "); err == nil {
-			_ = os.WriteFile(path, b, 0o644)
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create config sqlite dir: %w", err)
 		}
 	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open config sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping config sqlite: %w", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `PRAGMA busy_timeout = 5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("set config sqlite busy timeout: %w", err)
+	}
+	if err := ensureConfigSchema(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func ensureConfigSchema(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS config_state (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			version INTEGER NOT NULL,
+			revision INTEGER NOT NULL,
+			config_json TEXT NOT NULL
+		)`,
+		fmt.Sprintf(
+			`INSERT INTO config_state(id, version, revision, config_json)
+			 VALUES (1, %d, 0, '{}')
+			 ON CONFLICT(id) DO NOTHING`,
+			configSchemaVersion,
+		),
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("init config sqlite schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func loadConfigFromSQLite(db *sql.DB) (Config, error) {
+	var raw string
+	if err := db.QueryRowContext(
+		context.Background(),
+		`SELECT config_json FROM config_state WHERE id = ?`,
+		configStateRowID,
+	).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Config{}, errors.New("config sqlite state is not initialized")
+		}
+		return Config{}, fmt.Errorf("read config sqlite row: %w", err)
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return Config{}, nil
+	}
+	var cfg Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return Config{}, fmt.Errorf("decode config sqlite json: %w", err)
+	}
 	return cfg, nil
+}
+
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("close config sqlite: %w", err)
+	}
+	s.db = nil
+	return nil
 }
 
 func (s *Store) Snapshot() Config {
@@ -233,45 +291,31 @@ func (s *Store) Update(mutator func(*Config) error) error {
 func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.fromEnv && (IsVercel() || !envWritebackEnabled()) {
-		Logger.Info("[save_config] source from env, skip write")
-		return nil
-	}
-	persistCfg := s.cfg.Clone()
-	persistCfg.ClearAccountTokens()
-	b, err := json.MarshalIndent(persistCfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := writeConfigBytes(s.path, b); err != nil {
-		return err
-	}
-	s.fromEnv = false
-	return nil
+	return s.saveLocked()
 }
 
 func (s *Store) saveLocked() error {
-	if s.fromEnv && (IsVercel() || !envWritebackEnabled()) {
-		Logger.Info("[save_config] source from env, skip write")
-		return nil
+	if s == nil || s.db == nil {
+		return errors.New("config sqlite is not initialized")
 	}
 	persistCfg := s.cfg.Clone()
 	persistCfg.ClearAccountTokens()
-	b, err := json.MarshalIndent(persistCfg, "", "  ")
+	b, err := json.Marshal(persistCfg)
 	if err != nil {
 		return err
 	}
-	if err := writeConfigBytes(s.path, b); err != nil {
-		return err
+	revision := time.Now().UnixNano()
+	if _, err := s.db.ExecContext(
+		context.Background(),
+		`UPDATE config_state SET version = ?, revision = ?, config_json = ? WHERE id = ?`,
+		configSchemaVersion,
+		revision,
+		string(b),
+		configStateRowID,
+	); err != nil {
+		return fmt.Errorf("write config sqlite row: %w", err)
 	}
-	s.fromEnv = false
 	return nil
-}
-
-func (s *Store) IsEnvBacked() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.fromEnv
 }
 
 func (s *Store) SetVercelSync(hash string, ts int64) error {

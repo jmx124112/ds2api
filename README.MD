@@ -164,18 +164,9 @@ Gemini 适配器将模型名通过 `model_aliases` 或内置规则映射到 Deep
 
 ### 通用第一步（所有部署方式）
 
-把 `config.json` 作为唯一配置源（推荐做法）：
+当前版本默认把系统配置持久化到本地 SQLite（`data/config.db`），无需预先准备 `config.json`。
 
-```bash
-cp config.example.json config.json
-# 编辑 config.json
-```
-
-后续部署建议：
-- 本地运行：直接读取 `config.json`
-- Docker / Vercel：由 `config.json` 生成 `DS2API_CONFIG_JSON`（Base64）注入环境变量，也可以直接写原始 JSON
-
-WebUI 管理台里的“全量配置模板”也直接复用同一份 `config.example.json`，所以更新示例文件后，前端模板会自动保持一致。
+首次访问 `/admin` 时，需要先设置管理员密码；设置完成后再在管理台里添加 API Key、账号、模型映射等配置。
 
 ### 方式一：下载 Release 构建包
 
@@ -193,12 +184,10 @@ cp config.example.json config.json
 ### 方式二：Docker 运行
 
 ```bash
-# 1. 准备环境变量和配置文件
+# 1. 准备环境变量
 cp .env.example .env
-cp config.example.json config.json
 
-# 2. 编辑 .env（至少设置 DS2API_ADMIN_KEY；如需修改宿主机端口，可额外设置 DS2API_HOST_PORT）
-#    DS2API_ADMIN_KEY=请替换为强密码
+# 2. 如需修改宿主机端口，可设置 DS2API_HOST_PORT
 
 # 3. 启动
 docker-compose up -d
@@ -207,7 +196,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-默认 `docker-compose.yml` 会本地构建镜像（`ds2api:local`），并把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
+默认 `docker-compose.yml` 会本地构建镜像（`ds2api:local`），并把宿主机 `6011` 映射到容器内的 `5001`。同时会挂载 `./data:/app/data`，用于持久化 SQLite 配置库与聊天记录库。
 
 更新镜像：`docker-compose up -d --build`
 
@@ -252,11 +241,7 @@ base64 < config.json | tr -d '\n'
 git clone https://github.com/CJackHwang/ds2api.git
 cd ds2api
 
-# 2. 配置
-cp config.example.json config.json
-# 编辑 config.json，填入你的 DeepSeek 账号信息和 API key
-
-# 3. 启动
+# 2. 启动
 go run ./cmd/ds2api
 ```
 

@@ -3,7 +3,6 @@ FROM node:24 AS webui-builder
 WORKDIR /app/webui
 COPY webui/package.json webui/package-lock.json ./
 RUN npm ci
-COPY config.example.json /app/config.example.json
 COPY webui ./
 RUN npm run build
 
@@ -36,7 +35,6 @@ CMD ["/usr/local/bin/ds2api"]
 FROM runtime-base AS runtime-from-source
 COPY --from=go-builder /out/ds2api /usr/local/bin/ds2api
 
-COPY --from=go-builder /app/config.example.json /app/config.example.json
 COPY --from=webui-builder /app/static/admin /app/static/admin
 
 FROM busybox-tools AS dist-extract
@@ -54,14 +52,11 @@ RUN set -eux; \
     test -n "${PKG_DIR}"; \
     mkdir -p /out/static; \
     cp "${PKG_DIR}/ds2api" /out/ds2api; \
-
-    cp "${PKG_DIR}/config.example.json" /out/config.example.json; \
     cp -R "${PKG_DIR}/static/admin" /out/static/admin
 
 FROM runtime-base AS runtime-from-dist
 COPY --from=dist-extract /out/ds2api /usr/local/bin/ds2api
 
-COPY --from=dist-extract /out/config.example.json /app/config.example.json
 COPY --from=dist-extract /out/static/admin /app/static/admin
 
 FROM runtime-from-source AS final

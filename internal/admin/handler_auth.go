@@ -2,12 +2,14 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	authn "ds2api/internal/auth"
+	"ds2api/internal/config"
 )
 
 func (h *Handler) requireAdmin(next http.Handler) http.Handler {
@@ -20,7 +22,21 @@ func (h *Handler) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
+func (h *Handler) bootstrap(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"setup_required": strings.TrimSpace(h.Store.AdminPasswordHash()) == "",
+	})
+}
+
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(h.Store.AdminPasswordHash()) == "" {
+		writeJSON(w, http.StatusPreconditionRequired, map[string]any{
+			"detail":         "admin password is not initialized",
+			"setup_required": true,
+		})
+		return
+	}
+
 	var req map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	adminKey, _ := req["admin_key"].(string)
@@ -38,6 +54,62 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		expireHours = h.Store.AdminJWTExpireHours()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "token": token, "expires_in": expireHours * 3600})
+}
+
+func (h *Handler) setup(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(h.Store.AdminPasswordHash()) != "" {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"detail": "admin password has already been initialized",
+		})
+		return
+	}
+
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid json"})
+		return
+	}
+	password := strings.TrimSpace(fieldString(req, "password"))
+	if password == "" {
+		password = strings.TrimSpace(fieldString(req, "new_password"))
+	}
+	if len(password) < 4 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"detail": "password must be at least 4 characters",
+		})
+		return
+	}
+
+	now := time.Now().Unix()
+	hash := authn.HashAdminPassword(password)
+	if err := h.Store.Update(func(c *config.Config) error {
+		if strings.TrimSpace(c.Admin.PasswordHash) != "" {
+			return errors.New("admin password has already been initialized")
+		}
+		c.Admin.PasswordHash = hash
+		c.Admin.JWTValidAfterUnix = now
+		return nil
+	}); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already been initialized") {
+			writeJSON(w, http.StatusConflict, map[string]any{"detail": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		return
+	}
+
+	token, err := authn.CreateJWTWithStore(0, h.Store)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		return
+	}
+	expireHours := h.Store.AdminJWTExpireHours()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":        true,
+		"setup_required": false,
+		"token":          token,
+		"expires_in":     expireHours * 3600,
+	})
 }
 
 func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {

@@ -324,7 +324,7 @@
         "templates": {
             "full": {
                 "name": "Full configuration template",
-                "desc": "Loaded from config.example.json with keys, accounts, and defaults"
+                "desc": "Built-in full template with keys, accounts, and defaults"
             },
             "emailOnly": {
                 "name": "Email-only accounts",
@@ -432,13 +432,21 @@
     "login": {
         "welcome": "Welcome back",
         "subtitle": "Enter your admin key to continue",
+        "setupSubtitle": "First-time setup: create your admin password",
         "adminKeyLabel": "Admin key",
         "adminKeyPlaceholder": "Enter your admin key...",
+        "newPasswordLabel": "Admin password",
+        "newPasswordPlaceholder": "Create admin password (min 4 chars)",
+        "confirmPasswordLabel": "Confirm password",
+        "confirmPasswordPlaceholder": "Enter the password again",
+        "setupPasswordMismatch": "Passwords do not match.",
         "rememberSession": "Remember this session",
         "signIn": "Sign in",
+        "setupAction": "Finish setup",
         "secureConnection": "Secure connection",
         "adminPortal": "DS2API admin portal",
         "signInFailed": "Sign-in failed.",
+        "setupFailed": "Setup failed.",
         "networkError": "Network error: {error}"
     },
     "vercel": {

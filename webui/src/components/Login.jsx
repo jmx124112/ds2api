@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Key, ArrowRight, ShieldCheck, Lock, Check } from 'lucide-react'
 import clsx from 'clsx'
 import { useI18n } from '../i18n'
@@ -7,20 +7,50 @@ import LanguageToggle from './LanguageToggle'
 export default function Login({ onLogin, onMessage }) {
     const { t } = useI18n()
     const [adminKey, setAdminKey] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
     const [loading, setLoading] = useState(false)
+    const [bootstrapLoading, setBootstrapLoading] = useState(true)
+    const [setupRequired, setSetupRequired] = useState(false)
     const [remember, setRemember] = useState(true)
+
+    useEffect(() => {
+        let cancelled = false
+        const loadBootstrap = async () => {
+            try {
+                const res = await fetch('/admin/bootstrap')
+                const data = await res.json()
+                if (!cancelled) {
+                    setSetupRequired(Boolean(data?.setup_required))
+                }
+            } catch {
+                // Keep login mode as fallback when bootstrap endpoint is unavailable.
+            } finally {
+                if (!cancelled) {
+                    setBootstrapLoading(false)
+                }
+            }
+        }
+        loadBootstrap()
+        return () => {
+            cancelled = true
+        }
+    }, [])
 
     const handleLogin = async (e) => {
         e.preventDefault()
         if (!adminKey.trim()) return
+        if (setupRequired && adminKey !== confirmPassword) {
+            onMessage('error', t('login.setupPasswordMismatch'))
+            return
+        }
 
         setLoading(true)
 
         try {
-            const res = await fetch('/admin/login', {
+            const res = await fetch(setupRequired ? '/admin/setup' : '/admin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ admin_key: adminKey }),
+                body: JSON.stringify(setupRequired ? { password: adminKey } : { admin_key: adminKey }),
             })
 
             const data = await res.json()
@@ -35,7 +65,10 @@ export default function Login({ onLogin, onMessage }) {
                     onMessage('warning', data.message)
                 }
             } else {
-                onMessage('error', data.detail || t('login.signInFailed'))
+                if (data?.setup_required) {
+                    setSetupRequired(true)
+                }
+                onMessage('error', data.detail || t(setupRequired ? 'login.setupFailed' : 'login.signInFailed'))
             }
         } catch (e) {
             onMessage('error', t('login.networkError', { error: e.message }))
@@ -57,12 +90,16 @@ export default function Login({ onLogin, onMessage }) {
                             <Lock className="w-6 h-6" />
                         </div>
                         <h1 className="text-3xl font-bold tracking-tight text-foreground">{t('login.welcome')}</h1>
-                        <p className="text-sm text-muted-foreground/80">{t('login.subtitle')}</p>
+                        <p className="text-sm text-muted-foreground/80">
+                            {setupRequired ? t('login.setupSubtitle') : t('login.subtitle')}
+                        </p>
                     </div>
 
                     <form onSubmit={handleLogin} className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
                         <div className="space-y-2">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest ml-1">{t('login.adminKeyLabel')}</label>
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest ml-1">
+                                {setupRequired ? t('login.newPasswordLabel') : t('login.adminKeyLabel')}
+                            </label>
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-muted-foreground group-focus-within:text-primary transition-colors">
                                     <Key className="w-4 h-4" />
@@ -70,13 +107,33 @@ export default function Login({ onLogin, onMessage }) {
                                 <input
                                     type="password"
                                     className="w-full bg-[#09090b] border border-border rounded-xl pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-muted-foreground/30 text-foreground"
-                                    placeholder={t('login.adminKeyPlaceholder')}
+                                    placeholder={setupRequired ? t('login.newPasswordPlaceholder') : t('login.adminKeyPlaceholder')}
                                     value={adminKey}
                                     onChange={e => setAdminKey(e.target.value)}
                                     autoFocus
                                 />
                             </div>
                         </div>
+
+                        {setupRequired && (
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest ml-1">
+                                    {t('login.confirmPasswordLabel')}
+                                </label>
+                                <div className="relative group">
+                                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-muted-foreground group-focus-within:text-primary transition-colors">
+                                        <Key className="w-4 h-4" />
+                                    </div>
+                                    <input
+                                        type="password"
+                                        className="w-full bg-[#09090b] border border-border rounded-xl pl-10 pr-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-muted-foreground/30 text-foreground"
+                                        placeholder={t('login.confirmPasswordPlaceholder')}
+                                        value={confirmPassword}
+                                        onChange={e => setConfirmPassword(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         <div className="flex items-center justify-between px-1">
                             <label className="flex items-center gap-2.5 cursor-pointer group">
@@ -96,14 +153,14 @@ export default function Login({ onLogin, onMessage }) {
 
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || bootstrapLoading}
                             className="w-full h-12 flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-all font-semibold text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 disabled:opacity-50 disabled:shadow-none"
                         >
                             {loading ? (
                                 <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
                             ) : (
                                 <div className="flex items-center gap-2">
-                                    <span>{t('login.signIn')}</span>
+                                    <span>{setupRequired ? t('login.setupAction') : t('login.signIn')}</span>
                                     <ArrowRight className="w-4 h-4" />
                                 </div>
                             )}

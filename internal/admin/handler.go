@@ -15,7 +15,9 @@ type Handler struct {
 }
 
 func RegisterRoutes(r chi.Router, h *Handler) {
+	r.Get("/bootstrap", h.bootstrap)
 	r.Post("/login", h.login)
+	r.Post("/setup", h.setup)
 	r.Get("/verify", h.verify)
 	r.Group(func(pr chi.Router) {
 		pr.Use(h.requireAdmin)

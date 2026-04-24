@@ -30,7 +30,7 @@ func ResolvePath(envKey, defaultRel string) string {
 }
 
 func ConfigPath() string {
-	return ResolvePath("DS2API_CONFIG_PATH", "config.json")
+	return filepath.Join(BaseDir(), "data", "config.db")
 }
 
 func RawStreamSampleRoot() string {

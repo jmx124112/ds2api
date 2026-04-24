@@ -162,18 +162,9 @@ Recommended order when choosing a deployment method:
 
 ### Universal First Step (all deployment modes)
 
-Use `config.json` as the single source of truth (recommended):
+This version persists service configuration in local SQLite (`data/config.db`) by default, so you do not need to prepare a `config.json` file.
 
-```bash
-cp config.example.json config.json
-# Edit config.json
-```
-
-Recommended per deployment mode:
-- Local run: read `config.json` directly
-- Docker / Vercel: generate Base64 from `config.json` and inject as `DS2API_CONFIG_JSON`, or paste raw JSON directly
-
-The WebUI admin panel’s “Full configuration template” is loaded from the same `config.example.json`, so updating that file keeps the frontend template in sync.
+On first visit to `/admin`, complete initial admin password setup, then add API keys, accounts, and mappings in WebUI.
 
 ### Option 1: Download Release Binaries
 
@@ -194,15 +185,14 @@ cp config.example.json config.json
 # Optional: pull prebuilt image (if you want to run GHCR image instead of local build)
 # docker pull ghcr.io/cjackhwang/ds2api:latest
 
-# Prepare env file and config file
+# Prepare env file
 cp .env.example .env
-cp config.example.json config.json
 
 # Start with compose
 docker-compose up -d
 ```
 
-The default `docker-compose.yml` builds a local image (`ds2api:local`) and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
+The default `docker-compose.yml` builds a local image (`ds2api:local`), maps host port `6011` to container port `5001`, and mounts `./data:/app/data` so SQLite config/chat-history data persists across restarts.
 
 Rebuild after updates: `docker-compose up -d --build`
 
@@ -247,11 +237,7 @@ For detailed deployment instructions, see the [Deployment Guide](docs/DEPLOY.en.
 git clone https://github.com/CJackHwang/ds2api.git
 cd ds2api
 
-# 2. Configure
-cp config.example.json config.json
-# Edit config.json with your DeepSeek account info and API keys
-
-# 3. Start
+# 2. Start
 go run ./cmd/ds2api
 ```
 

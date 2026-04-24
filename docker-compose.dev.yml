@@ -26,8 +26,6 @@ services:
     volumes:
       # 源代码挂载（开发时实时生效）
       - ./:/app
-      # 配置文件挂载（便于本地修改）
-      - ./config.json:/app/config.json
     restart: "no"
     stdin_open: true
     tty: true

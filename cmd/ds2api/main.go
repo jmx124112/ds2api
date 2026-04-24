@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"ds2api/internal/auth"
 	"ds2api/internal/config"
 	"ds2api/internal/server"
 	"ds2api/internal/webui"
@@ -23,7 +22,6 @@ func main() {
 	}
 	config.RefreshLogger()
 	webui.EnsureBuiltOnStartup()
-	_ = auth.AdminKey()
 	app, err := server.NewApp()
 	if err != nil {
 		config.Logger.Error("server initialization failed", "error", err)
