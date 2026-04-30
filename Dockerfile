@@ -36,14 +36,9 @@ CMD ["/usr/local/bin/ds2api"]
 
 FROM runtime-base AS runtime-from-source
 COPY --from=go-builder /out/ds2api /usr/local/bin/ds2api
-
-<<<<<<< HEAD
-COPY --from=webui-builder /app/static/admin /app/static/admin
-=======
 COPY --from=go-builder --chown=ds2api:ds2api /app/config.example.json /app/config.example.json
 COPY --from=webui-builder --chown=ds2api:ds2api /app/static/admin /app/static/admin
 USER ds2api
->>>>>>> upstream/main
 
 FROM busybox-tools AS dist-extract
 ARG TARGETARCH
@@ -60,21 +55,13 @@ RUN set -eux; \
     test -n "${PKG_DIR}"; \
     mkdir -p /out/static; \
     cp "${PKG_DIR}/ds2api" /out/ds2api; \
-<<<<<<< HEAD
-=======
     cp "${PKG_DIR}/config.example.json" /out/config.example.json; \
->>>>>>> upstream/main
     cp -R "${PKG_DIR}/static/admin" /out/static/admin
 
 FROM runtime-base AS runtime-from-dist
 COPY --from=dist-extract /out/ds2api /usr/local/bin/ds2api
-
-<<<<<<< HEAD
-COPY --from=dist-extract /out/static/admin /app/static/admin
-=======
 COPY --from=dist-extract --chown=ds2api:ds2api /out/config.example.json /app/config.example.json
 COPY --from=dist-extract --chown=ds2api:ds2api /out/static/admin /app/static/admin
 USER ds2api
->>>>>>> upstream/main
 
 FROM runtime-from-source AS final
