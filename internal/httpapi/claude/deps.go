@@ -22,6 +22,7 @@ type DeepSeekCaller interface {
 
 type ConfigReader interface {
 	ModelAliases() map[string]string
+	ClaudeMapping() map[string]string
 	CompatStripReferenceMarkers() bool
 }
 

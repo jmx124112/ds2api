@@ -1,10 +1,9 @@
-package config
+﻿package config
 
 import (
 	"strings"
 )
 
-<<<<<<< HEAD
 func (s *Store) ClaudeMapping() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -17,8 +16,6 @@ func (s *Store) ClaudeMapping() map[string]string {
 	return map[string]string{"fast": "deepseek-v4-flash", "slow": "deepseek-v4-pro-thinking"}
 }
 
-=======
->>>>>>> upstream/main
 func (s *Store) ModelAliases() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -157,11 +154,21 @@ func (s *Store) AutoDeleteSessions() bool {
 }
 
 func (s *Store) HistorySplitEnabled() bool {
-	return false
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.HistorySplit.Enabled == nil {
+		return true
+	}
+	return *s.cfg.HistorySplit.Enabled
 }
 
 func (s *Store) HistorySplitTriggerAfterTurns() int {
-	return 1
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.HistorySplit.TriggerAfterTurns == nil || *s.cfg.HistorySplit.TriggerAfterTurns <= 0 {
+		return 1
+	}
+	return *s.cfg.HistorySplit.TriggerAfterTurns
 }
 
 func (s *Store) CurrentInputFileEnabled() bool {
@@ -176,6 +183,9 @@ func (s *Store) CurrentInputFileEnabled() bool {
 func (s *Store) CurrentInputFileMinChars() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.cfg.CurrentInputFile.MinChars < 0 {
+		return 0
+	}
 	return s.cfg.CurrentInputFile.MinChars
 }
 

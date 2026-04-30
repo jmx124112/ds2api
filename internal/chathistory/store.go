@@ -1,4 +1,4 @@
-package chathistory
+﻿package chathistory
 
 import (
 	"context"
@@ -13,13 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-<<<<<<< HEAD
 	_ "modernc.org/sqlite"
-=======
-
-	"ds2api/internal/config"
-	"ds2api/internal/util"
->>>>>>> upstream/main
 )
 
 const (
@@ -206,15 +200,11 @@ func (s *Store) Snapshot() (File, error) {
 }
 
 func (s *Store) Revision() (int64, error) {
-	if s == nil {
-		return 0, errors.New("chat history store is nil")
+	snapshot, err := s.Snapshot()
+	if err != nil {
+		return 0, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.err != nil {
-		return 0, s.err
-	}
-	return s.state.Revision, nil
+	return snapshot.Revision, nil
 }
 
 func (s *Store) Enabled() bool {
@@ -254,17 +244,9 @@ func (s *Store) Get(id string) (Entry, error) {
 }
 
 func (s *Store) DetailRevision(id string) (int64, error) {
-	if s == nil {
-		return 0, errors.New("chat history store is nil")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.err != nil {
-		return 0, s.err
-	}
-	item, ok := s.details[strings.TrimSpace(id)]
-	if !ok {
-		return 0, errors.New("chat history entry not found")
+	item, err := s.Get(id)
+	if err != nil {
+		return 0, err
 	}
 	return item.Revision, nil
 }
@@ -1009,8 +991,8 @@ func buildPreview(item Entry) string {
 	if candidate == "" {
 		candidate = strings.TrimSpace(item.UserInput)
 	}
-	if truncated, ok := util.TruncateRunes(candidate, defaultPreviewAt); ok {
-		return truncated + "..."
+	if len(candidate) > defaultPreviewAt {
+		return candidate[:defaultPreviewAt] + "..."
 	}
 	return candidate
 }
