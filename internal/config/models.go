@@ -14,6 +14,7 @@ type ModelAliasReader interface {
 	ModelAliases() map[string]string
 }
 
+<<<<<<< HEAD
 var DeepSeekModels = []ModelInfo{
 	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 	{ID: "deepseek-v4-flash-thinking", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
@@ -23,16 +24,28 @@ var DeepSeekModels = []ModelInfo{
 	{ID: "deepseek-v4-pro-thinking", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
 	{ID: "deepseek-v4-pro-thinking-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+=======
+const noThinkingModelSuffix = "-nothinking"
+
+var deepSeekBaseModels = []ModelInfo{
+	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-vision", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+>>>>>>> upstream/main
 }
 
-var ClaudeModels = []ModelInfo{
+var DeepSeekModels = appendNoThinkingVariants(deepSeekBaseModels)
+
+var claudeBaseModels = []ModelInfo{
 	// Current aliases
 	{ID: "claude-opus-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-sonnet-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
+	{ID: "claude-sonnet-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-haiku-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 
-	// Current snapshots
-	{ID: "claude-opus-4-5-20251101", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
+	// Claude 4.x snapshots and prior aliases kept for compatibility
+	{ID: "claude-sonnet-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-opus-4-1", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-opus-4-1-20250805", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-opus-4-0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
@@ -53,20 +66,12 @@ var ClaudeModels = []ModelInfo{
 	{ID: "claude-3-5-haiku-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-3-5-haiku-20241022", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 	{ID: "claude-3-haiku-20240307", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-
-	// Claude 2.x and 1.x (retired but accepted for compatibility)
-	{ID: "claude-2.1", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-2.0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-1.3", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-1.2", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-1.1", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-1.0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-instant-1.2", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-instant-1.1", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-instant-1.0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
 }
 
+var ClaudeModels = appendNoThinkingVariants(claudeBaseModels)
+
 func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
+<<<<<<< HEAD
 	switch normalizeDeepSeekModel(model) {
 	case "deepseek-v4-flash", "deepseek-v4-pro":
 		return false, false, true
@@ -76,17 +81,39 @@ func GetModelConfig(model string) (thinking bool, search bool, ok bool) {
 		return false, true, true
 	case "deepseek-v4-flash-thinking-search", "deepseek-v4-pro-thinking-search":
 		return true, true, true
+=======
+	baseModel, noThinking := splitNoThinkingModel(model)
+	if baseModel == "" {
+		return false, false, false
+	}
+	switch baseModel {
+	case "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-vision":
+		return !noThinking, false, true
+	case "deepseek-v4-flash-search", "deepseek-v4-pro-search":
+		return !noThinking, true, true
+>>>>>>> upstream/main
 	default:
 		return false, false, false
 	}
 }
 
 func GetModelType(model string) (modelType string, ok bool) {
+<<<<<<< HEAD
 	switch normalizeDeepSeekModel(model) {
 	case "deepseek-v4-flash", "deepseek-v4-flash-thinking", "deepseek-v4-flash-search", "deepseek-v4-flash-thinking-search":
 		return "default", true
 	case "deepseek-v4-pro", "deepseek-v4-pro-thinking", "deepseek-v4-pro-search", "deepseek-v4-pro-thinking-search":
 		return "expert", true
+=======
+	baseModel, _ := splitNoThinkingModel(model)
+	switch baseModel {
+	case "deepseek-v4-flash", "deepseek-v4-flash-search":
+		return "default", true
+	case "deepseek-v4-pro", "deepseek-v4-pro-search":
+		return "expert", true
+	case "deepseek-v4-vision":
+		return "vision", true
+>>>>>>> upstream/main
 	default:
 		return "", false
 	}
@@ -97,7 +124,13 @@ func IsSupportedDeepSeekModel(model string) bool {
 	return ok
 }
 
+func IsNoThinkingModel(model string) bool {
+	_, noThinking := splitNoThinkingModel(model)
+	return noThinking
+}
+
 func DefaultModelAliases() map[string]string {
+<<<<<<< HEAD
 	return map[string]string{}
 }
 
@@ -111,6 +144,144 @@ func ResolveModel(_ ModelAliasReader, requested string) (string, bool) {
 
 func normalizeDeepSeekModel(model string) string {
 	return lower(strings.TrimSpace(model))
+=======
+	return map[string]string{
+		// OpenAI GPT / ChatGPT families
+		"chatgpt-4o":          "deepseek-v4-flash",
+		"gpt-4":               "deepseek-v4-flash",
+		"gpt-4-turbo":         "deepseek-v4-flash",
+		"gpt-4-turbo-preview": "deepseek-v4-flash",
+		"gpt-4.5-preview":     "deepseek-v4-flash",
+		"gpt-4o":              "deepseek-v4-flash",
+		"gpt-4o-mini":         "deepseek-v4-flash",
+		"gpt-4.1":             "deepseek-v4-flash",
+		"gpt-4.1-mini":        "deepseek-v4-flash",
+		"gpt-4.1-nano":        "deepseek-v4-flash",
+		"gpt-5":               "deepseek-v4-flash",
+		"gpt-5-chat":          "deepseek-v4-flash",
+		"gpt-5.1":             "deepseek-v4-flash",
+		"gpt-5.1-chat":        "deepseek-v4-flash",
+		"gpt-5.2":             "deepseek-v4-flash",
+		"gpt-5.2-chat":        "deepseek-v4-flash",
+		"gpt-5.3-chat":        "deepseek-v4-flash",
+		"gpt-5.4":             "deepseek-v4-flash",
+		"gpt-5.5":             "deepseek-v4-flash",
+		"gpt-5-mini":          "deepseek-v4-flash",
+		"gpt-5-nano":          "deepseek-v4-flash",
+		"gpt-5.4-mini":        "deepseek-v4-flash",
+		"gpt-5.4-nano":        "deepseek-v4-flash",
+		"gpt-5-pro":           "deepseek-v4-pro",
+		"gpt-5.2-pro":         "deepseek-v4-pro",
+		"gpt-5.4-pro":         "deepseek-v4-pro",
+		"gpt-5.5-pro":         "deepseek-v4-pro",
+		"gpt-5-codex":         "deepseek-v4-pro",
+		"gpt-5.1-codex":       "deepseek-v4-pro",
+		"gpt-5.1-codex-mini":  "deepseek-v4-pro",
+		"gpt-5.1-codex-max":   "deepseek-v4-pro",
+		"gpt-5.2-codex":       "deepseek-v4-pro",
+		"gpt-5.3-codex":       "deepseek-v4-pro",
+		"codex-mini-latest":   "deepseek-v4-pro",
+
+		// OpenAI reasoning / research families
+		"o1":                    "deepseek-v4-pro",
+		"o1-preview":            "deepseek-v4-pro",
+		"o1-mini":               "deepseek-v4-pro",
+		"o1-pro":                "deepseek-v4-pro",
+		"o3":                    "deepseek-v4-pro",
+		"o3-mini":               "deepseek-v4-pro",
+		"o3-pro":                "deepseek-v4-pro",
+		"o3-deep-research":      "deepseek-v4-pro-search",
+		"o4-mini":               "deepseek-v4-pro",
+		"o4-mini-deep-research": "deepseek-v4-pro-search",
+
+		// Claude current and historical aliases
+		"claude-opus-4-6":            "deepseek-v4-pro",
+		"claude-opus-4-1":            "deepseek-v4-pro",
+		"claude-opus-4-1-20250805":   "deepseek-v4-pro",
+		"claude-opus-4-0":            "deepseek-v4-pro",
+		"claude-opus-4-20250514":     "deepseek-v4-pro",
+		"claude-sonnet-4-6":          "deepseek-v4-flash",
+		"claude-sonnet-4-5":          "deepseek-v4-flash",
+		"claude-sonnet-4-5-20250929": "deepseek-v4-flash",
+		"claude-sonnet-4-0":          "deepseek-v4-flash",
+		"claude-sonnet-4-20250514":   "deepseek-v4-flash",
+		"claude-haiku-4-5":           "deepseek-v4-flash",
+		"claude-haiku-4-5-20251001":  "deepseek-v4-flash",
+		"claude-3-7-sonnet":          "deepseek-v4-flash",
+		"claude-3-7-sonnet-latest":   "deepseek-v4-flash",
+		"claude-3-7-sonnet-20250219": "deepseek-v4-flash",
+		"claude-3-5-sonnet":          "deepseek-v4-flash",
+		"claude-3-5-sonnet-latest":   "deepseek-v4-flash",
+		"claude-3-5-sonnet-20240620": "deepseek-v4-flash",
+		"claude-3-5-sonnet-20241022": "deepseek-v4-flash",
+		"claude-3-5-haiku":           "deepseek-v4-flash",
+		"claude-3-5-haiku-latest":    "deepseek-v4-flash",
+		"claude-3-5-haiku-20241022":  "deepseek-v4-flash",
+		"claude-3-opus":              "deepseek-v4-pro",
+		"claude-3-opus-20240229":     "deepseek-v4-pro",
+		"claude-3-sonnet":            "deepseek-v4-flash",
+		"claude-3-sonnet-20240229":   "deepseek-v4-flash",
+		"claude-3-haiku":             "deepseek-v4-flash",
+		"claude-3-haiku-20240307":    "deepseek-v4-flash",
+
+		// Gemini current and historical text / multimodal models
+		"gemini-pro":            "deepseek-v4-pro",
+		"gemini-pro-vision":     "deepseek-v4-vision",
+		"gemini-pro-latest":     "deepseek-v4-pro",
+		"gemini-flash-latest":   "deepseek-v4-flash",
+		"gemini-1.5-pro":        "deepseek-v4-pro",
+		"gemini-1.5-flash":      "deepseek-v4-flash",
+		"gemini-1.5-flash-8b":   "deepseek-v4-flash",
+		"gemini-2.0-flash":      "deepseek-v4-flash",
+		"gemini-2.0-flash-lite": "deepseek-v4-flash",
+		"gemini-2.5-pro":        "deepseek-v4-pro",
+		"gemini-2.5-flash":      "deepseek-v4-flash",
+		"gemini-2.5-flash-lite": "deepseek-v4-flash",
+		"gemini-3.1-pro":        "deepseek-v4-pro",
+		"gemini-3-pro":          "deepseek-v4-pro",
+		"gemini-3-flash":        "deepseek-v4-flash",
+		"gemini-3.1-flash":      "deepseek-v4-flash",
+		"gemini-3.1-flash-lite": "deepseek-v4-flash",
+
+		"llama-3.1-70b-instruct": "deepseek-v4-flash",
+		"qwen-max":               "deepseek-v4-flash",
+	}
+}
+
+func ResolveModel(store ModelAliasReader, requested string) (string, bool) {
+	model := lower(strings.TrimSpace(requested))
+	if model == "" {
+		return "", false
+	}
+	aliases := loadModelAliases(store)
+	if IsSupportedDeepSeekModel(model) {
+		return model, true
+	}
+	if mapped, ok := aliases[model]; ok && IsSupportedDeepSeekModel(mapped) {
+		return mapped, true
+	}
+	baseModel, noThinking := splitNoThinkingModel(model)
+	resolvedModel, ok := resolveCanonicalModel(aliases, baseModel)
+	if !ok {
+		return "", false
+	}
+	return withNoThinkingVariant(resolvedModel, noThinking), true
+}
+
+func isRetiredHistoricalModel(model string) bool {
+	switch {
+	case strings.HasPrefix(model, "claude-1."):
+		return true
+	case strings.HasPrefix(model, "claude-2."):
+		return true
+	case strings.HasPrefix(model, "claude-instant-"):
+		return true
+	case strings.HasPrefix(model, "gpt-3.5"):
+		return true
+	default:
+		return false
+	}
+>>>>>>> upstream/main
 }
 
 func lower(s string) string {
@@ -151,4 +322,99 @@ func ClaudeModelsResponse() map[string]any {
 	}
 	resp["has_more"] = false
 	return resp
+}
+
+func appendNoThinkingVariants(models []ModelInfo) []ModelInfo {
+	out := make([]ModelInfo, 0, len(models)*2)
+	for _, model := range models {
+		out = append(out, model)
+		variant := model
+		variant.ID = withNoThinkingVariant(model.ID, true)
+		out = append(out, variant)
+	}
+	return out
+}
+
+func splitNoThinkingModel(model string) (string, bool) {
+	model = lower(strings.TrimSpace(model))
+	if strings.HasSuffix(model, noThinkingModelSuffix) {
+		return strings.TrimSuffix(model, noThinkingModelSuffix), true
+	}
+	return model, false
+}
+
+func withNoThinkingVariant(model string, enabled bool) string {
+	baseModel, _ := splitNoThinkingModel(model)
+	if !enabled {
+		return baseModel
+	}
+	if baseModel == "" {
+		return ""
+	}
+	return baseModel + noThinkingModelSuffix
+}
+
+func loadModelAliases(store ModelAliasReader) map[string]string {
+	aliases := DefaultModelAliases()
+	if store != nil {
+		for k, v := range store.ModelAliases() {
+			aliases[lower(strings.TrimSpace(k))] = lower(strings.TrimSpace(v))
+		}
+	}
+	return aliases
+}
+
+func resolveCanonicalModel(aliases map[string]string, model string) (string, bool) {
+	model = lower(strings.TrimSpace(model))
+	if model == "" {
+		return "", false
+	}
+	if isRetiredHistoricalModel(model) {
+		return "", false
+	}
+	if IsSupportedDeepSeekModel(model) {
+		return model, true
+	}
+	if mapped, ok := aliases[model]; ok && IsSupportedDeepSeekModel(mapped) {
+		return mapped, true
+	}
+	if strings.HasPrefix(model, "deepseek-") {
+		return "", false
+	}
+
+	knownFamily := false
+	for _, prefix := range []string{
+		"gpt-", "o1", "o3", "claude-", "gemini-", "llama-", "qwen-", "mistral-", "command-",
+	} {
+		if strings.HasPrefix(model, prefix) {
+			knownFamily = true
+			break
+		}
+	}
+	if !knownFamily {
+		return "", false
+	}
+
+	useVision := strings.Contains(model, "vision")
+	useReasoner := strings.Contains(model, "reason") ||
+		strings.Contains(model, "reasoner") ||
+		strings.HasPrefix(model, "o1") ||
+		strings.HasPrefix(model, "o3") ||
+		strings.Contains(model, "opus") ||
+		strings.Contains(model, "slow") ||
+		strings.Contains(model, "r1")
+	useSearch := strings.Contains(model, "search")
+
+	switch {
+	case useVision:
+		return "deepseek-v4-vision", true
+	case useReasoner && useSearch:
+		return "deepseek-v4-pro-search", true
+	case useReasoner:
+		return "deepseek-v4-pro", true
+	case useSearch:
+		return "deepseek-v4-flash-search", true
+	default:
+		return "deepseek-v4-flash", true
+	}
 }

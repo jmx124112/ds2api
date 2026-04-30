@@ -1,18 +1,19 @@
 package claudeconv
 
-import "strings"
+import (
+	"strings"
 
-type ClaudeMappingProvider interface {
-	ClaudeMapping() map[string]string
-}
+	"ds2api/internal/config"
+)
 
-func ConvertClaudeToDeepSeek(claudeReq map[string]any, mappingProvider ClaudeMappingProvider, defaultClaudeModel string) map[string]any {
+func ConvertClaudeToDeepSeek(claudeReq map[string]any, aliasProvider config.ModelAliasReader, defaultClaudeModel string) map[string]any {
 	messages, _ := claudeReq["messages"].([]any)
 	model, _ := claudeReq["model"].(string)
 	if model == "" {
 		model = defaultClaudeModel
 	}
 
+<<<<<<< HEAD
 	mapping := map[string]string{}
 	if mappingProvider != nil {
 		mapping = mappingProvider.ClaudeMapping()
@@ -27,6 +28,11 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, mappingProvider ClaudeMap
 		if slow := mapping["slow"]; slow != "" {
 			dsModel = slow
 		}
+=======
+	dsModel, ok := config.ResolveModel(aliasProvider, model)
+	if !ok || strings.TrimSpace(dsModel) == "" {
+		dsModel = "deepseek-v4-flash"
+>>>>>>> upstream/main
 	}
 
 	convertedMessages := make([]any, 0, len(messages)+1)

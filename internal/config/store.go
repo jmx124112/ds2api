@@ -77,8 +77,60 @@ func loadStore() (*Store, error) {
 }
 
 func loadConfig() (Config, bool, error) {
+<<<<<<< HEAD
 	store, err := loadStore()
 	if store == nil {
+=======
+	rawCfg := strings.TrimSpace(os.Getenv("DS2API_CONFIG_JSON"))
+	if rawCfg != "" {
+		cfg, err := parseConfigString(rawCfg)
+		if err != nil {
+			if !IsVercel() && envWritebackEnabled() {
+				if fileCfg, fileErr := loadConfigFromFile(ConfigPath()); fileErr == nil {
+					return fileCfg, false, nil
+				}
+			}
+			return cfg, true, err
+		}
+		cfg.ClearAccountTokens()
+		cfg.DropInvalidAccounts()
+		if IsVercel() || !envWritebackEnabled() {
+			return cfg, true, err
+		}
+		content, fileErr := os.ReadFile(ConfigPath())
+		if fileErr == nil {
+			var fileCfg Config
+			if unmarshalErr := json.Unmarshal(content, &fileCfg); unmarshalErr == nil {
+				fileCfg.DropInvalidAccounts()
+				return fileCfg, false, err
+			}
+		}
+		if errors.Is(fileErr, os.ErrNotExist) {
+			if validateErr := ValidateConfig(cfg); validateErr != nil {
+				return cfg, true, validateErr
+			}
+			if writeErr := writeConfigFile(ConfigPath(), cfg.Clone()); writeErr == nil {
+				return cfg, false, err
+			} else {
+				Logger.Warn("[config] env writeback bootstrap failed", "error", writeErr)
+			}
+		}
+		return cfg, true, err
+	}
+	cfg, err := loadConfigFromFile(ConfigPath())
+	if err != nil {
+		if shouldTryLegacyContainerConfigPath() {
+			legacyPath := legacyContainerConfigPath()
+			if legacyCfg, legacyErr := loadConfigFromFile(legacyPath); legacyErr == nil {
+				Logger.Info("[config] loaded legacy container config path", "path", legacyPath)
+				return legacyCfg, false, nil
+			}
+		}
+		if IsVercel() {
+			// Vercel may start without writable/present config; keep in-memory bootstrap config.
+			return Config{}, true, nil
+		}
+>>>>>>> upstream/main
 		return Config{}, false, err
 	}
 	cfg := store.Snapshot()

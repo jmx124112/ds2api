@@ -2,7 +2,11 @@
   "sample_id": "content-filter-trigger-20260405-jwt3",
   "captured_at_utc": "2026-04-04T16:28:52Z",
   "request": {
+<<<<<<< HEAD
     "model": "deepseek-v4-pro-thinking-search",
+=======
+    "model": "deepseek-v4-pro-search",
+>>>>>>> upstream/main
     "stream": true,
     "messages": [
       {
