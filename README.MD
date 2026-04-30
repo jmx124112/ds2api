@@ -4,11 +4,14 @@
 
 # DS2API
 
+<a href="https://trendshift.io/repositories/24508" target="_blank"><img src="https://trendshift.io/api/badge/repositories/24508" alt="CJackHwang%2Fds2api | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 [![License](https://img.shields.io/github/license/CJackHwang/ds2api.svg)](LICENSE)
 ![Stars](https://img.shields.io/github/stars/CJackHwang/ds2api.svg)
 ![Forks](https://img.shields.io/github/forks/CJackHwang/ds2api.svg)
 [![Release](https://img.shields.io/github/v/release/CJackHwang/ds2api?display_name=tag)](https://github.com/CJackHwang/ds2api/releases)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](docs/DEPLOY.md)
+
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/L4CFHP)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/CJackHwang/ds2api)
 
@@ -28,6 +31,30 @@
 >
 > 请勿将本项目用于违反服务条款、协议、法律法规或平台规则的场景。商业使用前请自行确认 `LICENSE`、相关协议以及你是否获得了作者的书面许可。
 
+## 目录
+
+- [架构概览（摘要）](#架构概览摘要)
+- [核心能力](#核心能力)
+- [平台兼容矩阵](#平台兼容矩阵)
+- [模型支持](#模型支持)
+  - [OpenAI 接口](#openai-接口get-v1models)
+  - [Claude 接口](#claude-接口get-anthropicv1models)
+  - [Gemini 接口](#gemini-接口)
+- [快速开始](#快速开始)
+  - [方式一：下载 Release 构建包](#方式一下载-release-构建包)
+  - [方式二：Docker 运行](#方式二docker-运行)
+  - [方式三：Vercel 部署](#方式三vercel-部署)
+  - [方式四：本地源码运行](#方式四本地源码运行)
+- [配置说明](#配置说明)
+- [鉴权模式](#鉴权模式)
+- [并发模型](#并发模型)
+- [Tool Call 适配](#tool-call-适配)
+- [本地开发抓包工具](#本地开发抓包工具)
+- [文档索引](#文档索引)
+- [测试](#测试)
+- [Release 自动构建（GitHub Actions）](#release-自动构建github-actions)
+- [免责声明](#免责声明)
+
 ## 架构概览（摘要）
 
 ```mermaid
@@ -35,25 +62,27 @@ flowchart LR
     Client["🖥️ 客户端 / SDK\n(OpenAI / Claude / Gemini)"]
     Upstream["☁️ DeepSeek API"]
 
-    subgraph DS2API["DS2API 3.x（统一 OpenAI 内核）"]
+    subgraph DS2API["DS2API 4.x（模块化 HTTP surface + PromptCompat 内核）"]
         Router["chi Router + 中间件\n(RequestID / RealIP / Logger / Recoverer / CORS)"]
 
-        subgraph Adapters["协议适配层"]
-            OA["OpenAI\n/v1/*"]
+        subgraph HTTP["HTTP API surface"]
+            OA["OpenAI\nchat / responses / files / embeddings"]
             CA["Claude\n/anthropic/* + /v1/messages"]
             GA["Gemini\n/v1beta/models/* + /v1/models/*"]
-            Admin["Admin API\n/admin/*"]
+            Admin["Admin API\n资源子包"]
             WebUI["WebUI\n/admin（静态托管）"]
+            Vercel["Vercel Node Stream\n/v1/chat/completions"]
         end
 
         subgraph Runtime["运行时核心能力"]
-            Bridge["CLIProxy 转换桥\n(多协议 <-> OpenAI)"]
-            OAEngine["OpenAI ChatCompletions\n(统一工具调用与流式语义)"]
+            Compat["PromptCompat\n(API -> 网页纯文本上下文)"]
+            Chat["Chat / Responses Runtime\n(统一工具调用与流式语义)"]
             Auth["Auth Resolver\n(API key / bearer / x-goog-api-key)"]
             Pool["Account Pool + Queue\n(并发槽位 + 等待队列)"]
-            DSClient["DeepSeek Client\n(Session / Auth / HTTP)"]
-            Pow["PoW 实现\n(纯 Go 毫秒级)"]
+            DSClient["DeepSeek Client\n(Session / Auth / Completion / Files)"]
+            Pow["PoW 实现\n(纯 Go)"]
             Tool["Tool Sieve\n(Go/Node 语义对齐)"]
+            History["History Split\n(长历史文件化)"]
         end
     end
 
@@ -61,19 +90,23 @@ flowchart LR
     Router --> OA & CA & GA
     Router --> Admin
     Router --> WebUI
+    Router --> Vercel
 
-    OA --> OAEngine
-    CA & GA --> Bridge
-    Bridge --> OAEngine
-    OAEngine --> Auth
-    OAEngine -.账号轮询.-> Pool
-    OAEngine -.工具调用解析.-> Tool
-    OAEngine -.PoW 计算.-> Pow
+    OA --> Compat
+    CA & GA --> Compat
+    Compat --> Chat
+    Compat -.长历史.-> History
+    Vercel -.Go prepare.-> Chat
+    Vercel -.Node SSE.-> Tool
+    Chat --> Auth
+    Chat -.账号轮询.-> Pool
+    Chat -.工具调用解析.-> Tool
+    Chat -.PoW 计算.-> Pow
     Auth --> DSClient
     DSClient --> Upstream
     Upstream --> DSClient
-    OAEngine --> Bridge
-    Bridge --> Client
+    Chat --> Client
+    Vercel --> Client
 ```
 
 详细架构拆分与目录职责见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -89,6 +122,7 @@ flowchart LR
 | OpenAI 兼容 | `GET /v1/models`、`GET /v1/models/{id}`、`POST /v1/chat/completions`、`POST /v1/responses`、`GET /v1/responses/{response_id}`、`POST /v1/embeddings`、`POST /v1/files` |
 | Claude 兼容 | `GET /anthropic/v1/models`、`POST /anthropic/v1/messages`、`POST /anthropic/v1/messages/count_tokens`（及快捷路径 `/v1/messages`、`/messages`） |
 | Gemini 兼容 | `POST /v1beta/models/{model}:generateContent`、`POST /v1beta/models/{model}:streamGenerateContent`（及 `/v1/models/{model}:*` 路径） |
+| 统一 CORS 兼容 | `/v1/*`、`/anthropic/*`、`/v1beta/models/*`、`/admin/*` 统一走同一套 CORS 策略；Vercel 上 `/v1/chat/completions` 的 Node Runtime 也对齐相同放行规则，尽量减少第三方预检请求头限制 |
 | 多账号轮询 | 自动 token 刷新、邮箱/手机号双登录方式 |
 | 并发队列控制 | 每账号 in-flight 上限 + 等待队列，动态计算建议并发值 |
 | DeepSeek PoW | 纯 Go 高性能实现（DeepSeekHashV1），毫秒级响应 |
@@ -114,42 +148,44 @@ flowchart LR
 
 | 模型类型 | 模型 ID | thinking | search |
 | --- | --- | --- | --- |
-| default | `deepseek-chat` | ❌ | ❌ |
-| default | `deepseek-reasoner` | ✅ | ❌ |
-| default | `deepseek-chat-search` | ❌ | ✅ |
-| default | `deepseek-reasoner-search` | ✅ | ✅ |
-| expert | `deepseek-expert-chat` | ❌ | ❌ |
-| expert | `deepseek-expert-reasoner` | ✅ | ❌ |
-| expert | `deepseek-expert-chat-search` | ❌ | ✅ |
-| expert | `deepseek-expert-reasoner-search` | ✅ | ✅ |
-| vision | `deepseek-vision-chat` | ❌ | ❌ |
-| vision | `deepseek-vision-reasoner` | ✅ | ❌ |
-| vision | `deepseek-vision-chat-search` | ❌ | ✅ |
-| vision | `deepseek-vision-reasoner-search` | ✅ | ✅ |
+| default | `deepseek-v4-flash` | 默认开启，可由请求参数控制 | ❌ |
+| default | `deepseek-v4-flash-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
+| expert | `deepseek-v4-pro` | 默认开启，可由请求参数控制 | ❌ |
+| expert | `deepseek-v4-pro-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
+| default | `deepseek-v4-flash-search` | 默认开启，可由请求参数控制 | ✅ |
+| default | `deepseek-v4-flash-search-nothinking` | 永久关闭，不受请求参数影响 | ✅ |
+| expert | `deepseek-v4-pro-search` | 默认开启，可由请求参数控制 | ✅ |
+| expert | `deepseek-v4-pro-search-nothinking` | 永久关闭，不受请求参数影响 | ✅ |
+| vision | `deepseek-v4-vision` | 默认开启，可由请求参数控制 | ❌ |
+| vision | `deepseek-v4-vision-nothinking` | 永久关闭，不受请求参数影响 | ❌ |
 
-除原生模型外，也支持常见 alias 输入（如 `gpt-5`、`gpt-5-mini`、`gpt-5-codex`、`gpt-4.1`、`o3`、`claude-opus-4-6`、`claude-sonnet-4-5`、`gemini-2.5-pro`、`gemini-2.5-flash` 等），但 `/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID。
+除原生模型外，也支持常见 alias 输入（如 `gpt-4.1`、`gpt-5`、`gpt-5-codex`、`o3`、`claude-*`、`gemini-*` 等），但 `/v1/models` 返回的是规范化后的 DeepSeek 原生模型 ID。若 alias 名本身追加 `-nothinking` 后缀，也会映射到对应的强制关思考模型。完整 alias 行为以 [API.md](API.md#模型-alias-解析策略) 和 `config.example.json` 为准。
+当前上游视觉模型只暴露 `vision` 通道，不提供独立的联网搜索视觉变体。
 
 ### Claude 接口（`GET /anthropic/v1/models`）
 
 | 当前常用模型 | 默认映射 |
 | --- | --- |
-| `claude-sonnet-4-5` | `deepseek-chat` |
-| `claude-haiku-4-5`（兼容 `claude-3-5-haiku-latest`） | `deepseek-chat` |
-| `claude-opus-4-6` | `deepseek-reasoner` |
+| `claude-sonnet-4-6` | `deepseek-v4-flash` |
+| `claude-sonnet-4-6-nothinking` | `deepseek-v4-flash-nothinking` |
+| `claude-haiku-4-5`（兼容 `claude-3-5-haiku-latest`） | `deepseek-v4-flash` |
+| `claude-haiku-4-5-nothinking` | `deepseek-v4-flash-nothinking` |
+| `claude-opus-4-6` | `deepseek-v4-pro` |
+| `claude-opus-4-6-nothinking` | `deepseek-v4-pro-nothinking` |
 
-可通过配置中的 `claude_mapping` 或 `claude_model_mapping` 覆盖映射关系。
-`/anthropic/v1/models` 除上述当前主别名外，还会返回 Claude 4.x snapshots，以及 3.x / 2.x / 1.x 历史模型 ID 与常见 alias，便于旧客户端直接兼容。
+可通过配置中的 `model_aliases` 覆盖映射关系；若请求模型名带 `-nothinking`，会在最终映射结果上强制追加无思考语义。
+`/anthropic/v1/models` 除上述主别名外，还会返回 Claude 4.x snapshots、3.x 历史模型 ID 与常见 alias，便于旧客户端直接兼容。
 
 #### Claude Code 接入避坑（实测）
 
 - `ANTHROPIC_BASE_URL` 推荐直接指向 DS2API 根地址（例如 `http://127.0.0.1:5001`），Claude Code 会请求 `/v1/messages?beta=true`。
 - `ANTHROPIC_API_KEY` 需要与 `config.json` 中 `keys` 一致；建议同时保留常规 key 与 `sk-ant-*` 形态 key，兼容不同客户端校验习惯。
 - 若系统设置了代理，建议对 DS2API 地址配置 `NO_PROXY=127.0.0.1,localhost,<你的主机IP>`，避免本地回环请求被代理拦截。
-- 如遇“工具调用输出成文本、未执行”问题，请优先检查模型输出是否为受支持的 XML/Markup 工具块（例如 `<tool_call>` / `<function_call>` / `<invoke>` / `tool_use`），而不是纯 JSON `tool_calls` 片段。
+- 如遇“工具调用输出成文本、未执行”问题，请优先检查模型输出是否为推荐的 DSML 工具块：`<|DSML|tool_calls><|DSML|invoke name="..."><|DSML|parameter name="...">...`。兼容层也接受旧式 canonical XML：`<tool_calls><invoke name="..."><parameter name="...">...`；旧式 `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`、`<function_call>`、`tool_use` 或纯 JSON `tool_calls` 片段不会执行。
 
 ### Gemini 接口
 
-Gemini 适配器将模型名通过 `model_aliases` 或内置规则映射到 DeepSeek 原生模型，支持 `generateContent` 和 `streamGenerateContent` 两种调用方式，并完整支持 Tool Calling（`functionDeclarations` → `functionCall` 输出）。
+Gemini 适配器将模型名通过 `model_aliases` 或内置规则映射到 DeepSeek 原生模型，支持 `generateContent` 和 `streamGenerateContent` 两种调用方式，并完整支持 Tool Calling（`functionDeclarations` → `functionCall` 输出）。若 Gemini 模型名带 `-nothinking` 后缀，例如 `gemini-2.5-pro-nothinking`，会映射到对应的强制关闭思考模型。
 
 ## 快速开始
 
@@ -196,7 +232,12 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
+<<<<<<< HEAD
 默认 `docker-compose.yml` 会本地构建镜像（`ds2api:local`），并把宿主机 `6011` 映射到容器内的 `5001`。同时会挂载 `./data:/app/data`，用于持久化 SQLite 配置库与聊天记录库。
+=======
+默认 `docker-compose.yml` 会把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
+同时默认把 `./config.json` 挂载到容器 `/data/config.json`，并设置 `DS2API_CONFIG_PATH=/data/config.json`，用于避免 `/app` 只读导致运行时 token 持久化失败。
+>>>>>>> upstream/main
 
 更新镜像：`docker-compose up -d --build`
 
@@ -228,7 +269,7 @@ cp config.example.json config.json
 base64 < config.json | tr -d '\n'
 ```
 
-> **流式说明**：`/v1/chat/completions` 在 Vercel 上默认走 `api/chat-stream.js`（Node Runtime）以保证实时 SSE。鉴权、账号选择、会话/PoW 准备仍由 Go 内部 prepare 接口完成；流式响应（含 `tools`）在 Node 侧执行与 Go 对齐的输出组装与防泄漏处理。
+> **流式说明**：`/v1/chat/completions` 在 Vercel 上默认走 `api/chat-stream.js`（Node Runtime）以保证实时 SSE。鉴权、账号选择、会话/PoW 准备仍由 Go 内部 prepare 接口完成；流式响应（含 `tools`）在 Node 侧执行与 Go 对齐的输出组装与防泄漏处理。虽然这里只有 OpenAI chat 流式走 Node，但 CORS 放行策略仍与 Go 主路由保持一致，统一覆盖第三方客户端预检场景。
 
 详细部署说明请参阅 [部署指南](docs/DEPLOY.md)。
 
@@ -253,83 +294,21 @@ go run ./cmd/ds2api
 
 ## 配置说明
 
-### `config.json` 示例
+`README` 只保留快速入口，完整字段请以 [config.example.json](config.example.json) 为模板，并参考 [部署指南](docs/DEPLOY.md#0-前置要求) 与 [API 配置最佳实践](API.md#配置最佳实践)。
 
-```json
-{
-  "keys": ["your-api-key-1", "your-api-key-2"],
-  "api_keys": [
-    {
-      "key": "your-api-key-1",
-      "name": "主 Key",
-      "remark": "生产流量"
-    }
-  ],
-  "accounts": [
-    {
-      "name": "账号 A",
-      "remark": "主账号",
-      "email": "user@example.com",
-      "password": "your-password"
-    },
-    {
-      "mobile": "12345678901",
-      "password": "your-password"
-    }
-  ],
-  "model_aliases": {
-    "gpt-4o": "deepseek-chat",
-    "gpt-5": "deepseek-chat",
-    "gpt-5-mini": "deepseek-chat",
-    "gpt-5-codex": "deepseek-reasoner",
-    "o3": "deepseek-reasoner",
-    "claude-opus-4-6": "deepseek-reasoner",
-    "gemini-2.5-flash": "deepseek-chat"
-  },
-  "compat": {
-    "wide_input_strict_output": true,
-    "strip_reference_markers": true
-  },
-  "responses": {
-    "store_ttl_seconds": 900
-  },
-  "embeddings": {
-    "provider": "deterministic"
-  },
-  "claude_mapping": {
-    "fast": "deepseek-chat",
-    "slow": "deepseek-reasoner"
-  },
-  "admin": {
-    "jwt_expire_hours": 24
-  },
-  "runtime": {
-    "account_max_inflight": 2,
-    "account_max_queue": 0,
-    "global_max_inflight": 0,
-    "token_refresh_interval_hours": 6
-  },
-  "auto_delete": {
-    "mode": "none"
-  }
-}
-```
+常用字段：
 
-- `keys`：API 访问密钥列表，客户端通过 `Authorization: Bearer <key>` 鉴权
-- `api_keys`：推荐使用的新结构化密钥列表，支持 `key` + `name` + `remark`（`keys` 仍兼容）
-- `accounts`：DeepSeek 账号列表，支持 `email` 或 `mobile` 登录；可额外填写 `name` / `remark` 便于管理
-- `token`：配置文件中即使填写也会在加载时被清空（不会从 `config.json` 读取 token）；实际 token 仅在运行时内存中维护并自动刷新
-- `model_aliases`：常见模型名（如 GPT/Codex/Claude）到 DeepSeek 模型的映射
-- `compat.wide_input_strict_output`：建议保持 `true`（当前实现默认宽进严出）
-- `compat.strip_reference_markers`：建议保持 `true`，用于清理可见输出中的引用/标记
-- `toolcall`：旧字段，当前实现已固定为特征匹配 + 高置信早发；即使保留在配置里也会被忽略
-- `responses.store_ttl_seconds`：`/v1/responses/{id}` 的内存缓存 TTL
-- `embeddings.provider`：embedding 提供方（当前内置 `deterministic/mock/builtin`）
-- `claude_mapping`：字典中 `fast`/`slow` 后缀映射到对应 DeepSeek 模型（兼容读取 `claude_model_mapping`）
-- `admin`：管理后台设置（JWT 过期时间、密码哈希等），可通过 Admin Settings API 热更新
-- `runtime`：运行时参数（并发限制、队列大小、托管账号 token 刷新间隔），可通过 Admin Settings API 热更新；`account_max_queue=0`/`global_max_inflight=0` 表示按推荐值自动计算，`token_refresh_interval_hours=6` 为默认强制重登间隔
-- `auto_delete.mode`：请求结束后如何清理 DeepSeek 远端聊天记录，支持 `none`（默认，不删除）、`single`（仅删除当前会话）、`all`（清空全部会话）；旧配置里的 `auto_delete.sessions=true` 仍会被视为 `all`
+- `keys` / `api_keys`：客户端访问密钥，`api_keys` 支持 `name` 与 `remark` 元信息，`keys` 继续兼容。
+- `accounts`：DeepSeek 托管账号，支持 `email` 或 `mobile` 登录，可配置代理、名称和备注。
+- `model_aliases`：OpenAI / Claude / Gemini 共用的模型 alias 映射。
+- `runtime`：账号并发、队列与 token 刷新策略，可通过 Admin Settings 热更新。
+- `auto_delete.mode`：请求结束后的远端会话清理策略，支持 `none` / `single` / `all`。
+- `history_split`：旧轮次拆分字段，已废弃并忽略，仅保留兼容旧配置。
+- `current_input_file`：唯一生效的独立拆分策略；默认开启且阈值为 `0`，触发时将完整上下文合并上传为 `history.txt` 上下文文件。
+- 如果关闭 `current_input_file`，请求会直接透传，不上传拆分上下文文件。
+- `thinking_injection`：默认开启；在最新 user 消息末尾追加思考增强提示词，提高高强度推理与工具调用前的思考稳定性；`prompt` 留空时使用内置默认提示词。
 
+<<<<<<< HEAD
 ### 环境变量
 
 > 建议：长期维护请优先以 `config.json`（或其 Base64）为单一配置源。环境变量仅保留部署必需项；`DS2API_CONFIG_JSON` 主要用于 Vercel/无持久盘场景，后续可能进一步收敛。
@@ -370,6 +349,9 @@ go run ./cmd/ds2api
   - `DS2API_CONFIG_JSON`（可选，适合 Vercel；支持 JSON 或 Base64）
 - **仅在环境变量配置模式建议开启**：`DS2API_ENV_WRITEBACK=1`（避免管理台改动重启后丢失）
 - 其余环境变量均为可选调优项。
+=======
+环境变量完整列表见 [部署指南](docs/DEPLOY.md)，接口鉴权规则见 [API.md](API.md#鉴权规则)。
+>>>>>>> upstream/main
 
 ## 鉴权模式
 
@@ -401,14 +383,14 @@ Gemini 路由还可以使用 `x-goog-api-key`，或在没有认证头时使用 `
 当请求中带 `tools` 时，DS2API 会做防泄漏处理与结构化转译：
 
 1. 只在**非代码块上下文**启用执行型 toolcall 识别（代码块示例默认不触发）
-2. 解析层当前以 XML/Markup 家族为准（`<tool_call>` / `<function_call>` / `<invoke>` / `tool_use` / antml 变体）；纯 JSON `tool_calls` 片段默认不作为可执行调用解析
+2. 解析层当前把 DSML 外壳视为推荐可执行调用：`<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`；兼容旧式 canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`。DSML 只是外壳别名，内部仍以 XML 解析语义为准；旧式 `<tools>` / `<tool_call>` / `<tool_name>` / `<param>`、`<function_call>`、`tool_use` / antml 变体与纯 JSON `tool_calls` 片段都会按普通文本处理
 3. `responses` 流式严格使用官方 item 生命周期事件（`response.output_item.*`、`response.content_part.*`、`response.function_call_arguments.*`）
 4. `responses` 支持并执行 `tool_choice`（`auto`/`none`/`required`/强制函数）；`required` 违规时非流式返回 `422`，流式返回 `response.failed`
 5. 客户端请求哪种协议，就按该协议返回工具调用（OpenAI/Claude/Gemini 各自原生结构）；模型侧优先约束输出规范 XML，再由兼容层转译
 
-> 说明：当前版本在 parser 层仍以“尽量解析成功”为优先，未启用基于 allow-list 的工具名硬拒绝。
+> 说明：当前版本 parser 层以”尽量解析成功”为优先，所有格式合法的 XML 工具调用都会通过，不做工具名 allow-list 过滤。
 >
-> 想评估“把工具调用封装成 XML 再输入模型”的方案，可参考：`docs/toolcall-semantics.md`。
+> 想评估”把工具调用封装成 XML 再输入模型”的方案，可参考：`docs/toolcall-semantics.md`。
 
 ## 本地开发抓包工具
 
@@ -452,44 +434,18 @@ go run ./cmd/ds2api
 
 ## 测试
 
-```bash
-# 单元测试（Go + Node）
-./tests/scripts/run-unit-all.sh
-
-# 一键端到端全链路测试（真实账号，生成完整请求/响应日志）
-./tests/scripts/run-live.sh
-
-# 或自定义参数
-go run ./cmd/ds2api-tests \
-  --config config.json \
-  --admin-key admin \
-  --out artifacts/testsuite \
-  --timeout 120 \
-  --retries 2
-```
-
-```bash
-# 发布前阻断门禁
-./tests/scripts/check-stage6-manual-smoke.sh
-./tests/scripts/check-refactor-line-gate.sh
-./tests/scripts/run-unit-all.sh
-npm ci --prefix webui && npm run build --prefix webui
-```
-
-## 测试
-
 详细测试指南请参阅 [docs/TESTING.md](docs/TESTING.md)。
 
 ### 快速测试命令
 
 ```bash
-# 运行所有单元测试
-go test ./...
+# 本地 PR 门禁
+./scripts/lint.sh
+./tests/scripts/check-refactor-line-gate.sh
+./tests/scripts/run-unit-all.sh
+npm run build --prefix webui
 
-# 运行 tool calls 相关测试（调试工具调用问题）
-go test -v -run 'TestParseToolCalls|TestRepair' ./internal/toolcall/
-
-# 运行端到端测试
+# 端到端全链路测试（真实账号，生成完整请求/响应日志）
 ./tests/scripts/run-live.sh
 ```
 
@@ -498,7 +454,7 @@ go test -v -run 'TestParseToolCalls|TestRepair' ./internal/toolcall/
 工作流文件：`.github/workflows/release-artifacts.yml`
 
 - **触发条件**：仅在 GitHub Release `published` 时触发（普通 push 不会触发）
-- **构建产物**：多平台二进制包（`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`）+ `sha256sums.txt`
+- **构建产物**：多平台二进制包（`linux/amd64`、`linux/arm64`、`linux/armv7`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`、`windows/arm64`）+ `sha256sums.txt`
 - **容器镜像发布**：仅推送到 GHCR（`ghcr.io/cjackhwang/ds2api`）
 - **每个压缩包包含**：`ds2api` 可执行文件、`static/admin`、WASM 文件（同时支持内置 fallback）、`config.example.json` 配置示例、README、LICENSE
 

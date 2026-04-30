@@ -13,7 +13,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+<<<<<<< HEAD
 	_ "modernc.org/sqlite"
+=======
+
+	"ds2api/internal/config"
+	"ds2api/internal/util"
+>>>>>>> upstream/main
 )
 
 const (
@@ -199,6 +205,18 @@ func (s *Store) Snapshot() (File, error) {
 	return s.snapshotLocked()
 }
 
+func (s *Store) Revision() (int64, error) {
+	if s == nil {
+		return 0, errors.New("chat history store is nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.state.Revision, nil
+}
+
 func (s *Store) Enabled() bool {
 	if s == nil {
 		return false
@@ -233,6 +251,22 @@ func (s *Store) Get(id string) (Entry, error) {
 		return Entry{}, err
 	}
 	return cloneEntry(item), nil
+}
+
+func (s *Store) DetailRevision(id string) (int64, error) {
+	if s == nil {
+		return 0, errors.New("chat history store is nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return 0, s.err
+	}
+	item, ok := s.details[strings.TrimSpace(id)]
+	if !ok {
+		return 0, errors.New("chat history entry not found")
+	}
+	return item.Revision, nil
 }
 
 func (s *Store) Start(params StartParams) (Entry, error) {
@@ -975,8 +1009,8 @@ func buildPreview(item Entry) string {
 	if candidate == "" {
 		candidate = strings.TrimSpace(item.UserInput)
 	}
-	if len(candidate) > defaultPreviewAt {
-		return candidate[:defaultPreviewAt] + "..."
+	if truncated, ok := util.TruncateRunes(candidate, defaultPreviewAt); ok {
+		return truncated + "..."
 	}
 	return candidate
 }

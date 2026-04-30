@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Bot, ChevronDown, Clock3, Loader2, MessageSquareText, RefreshCcw, Sparkles, Trash2, UserRound, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bot, ChevronDown, Clock3, Copy, Download, Loader2, MessageSquareText, RefreshCcw, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 
@@ -8,6 +8,15 @@ const LIMIT_OPTIONS = [0, 10, 20, 50]
 const DISABLED_LIMIT = 0
 const MESSAGE_COLLAPSE_AT = 700
 const VIEW_MODE_KEY = 'ds2api_chat_history_view_mode'
+const BEGIN_SENTENCE_MARKER = '<｜begin▁of▁sentence｜>'
+const SYSTEM_MARKER = '<｜System｜>'
+const USER_MARKER = '<｜User｜>'
+const ASSISTANT_MARKER = '<｜Assistant｜>'
+const TOOL_MARKER = '<｜Tool｜>'
+const END_INSTRUCTIONS_MARKER = '<｜end▁of▁instructions｜>'
+const END_SENTENCE_MARKER = '<｜end▁of▁sentence｜>'
+const END_TOOL_RESULTS_MARKER = '<｜end▁of▁toolresults｜>'
+const CURRENT_INPUT_FILE_PROMPT = 'The current request and prior conversation context have already been provided. Answer the latest user request directly.'
 
 function formatDateTime(value, lang) {
     if (!value) return '-'
@@ -105,14 +114,228 @@ function MergeModeIcon() {
     )
 }
 
-function RequestMessages({ item, t }) {
-    const messages = Array.isArray(item?.messages) && item.messages.length > 0
+function downloadTextFile(filename, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+}
+
+function fallbackCopyText(text) {
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.setAttribute('readonly', '')
+    textArea.style.position = 'fixed'
+    textArea.style.top = '-9999px'
+    textArea.style.left = '-9999px'
+
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+
+    let copied = false
+    try {
+        copied = document.execCommand('copy')
+    } finally {
+        document.body.removeChild(textArea)
+    }
+
+    if (!copied) {
+        throw new Error('copy failed')
+    }
+}
+
+async function copyTextWithFallback(text) {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text)
+            return
+        }
+    } catch {
+        // Fall through to execCommand fallback.
+    }
+    fallbackCopyText(text)
+}
+
+function skipWhitespace(text, start) {
+    let cursor = start
+    while (cursor < text.length && /\s/.test(text[cursor])) {
+        cursor += 1
+    }
+    return cursor
+}
+
+function parseStrictHistoryMessages(historyText) {
+    const rawText = String(historyText || '')
+    const beginIndex = rawText.indexOf(BEGIN_SENTENCE_MARKER)
+    if (beginIndex < 0) return null
+
+    const transcript = rawText.slice(beginIndex)
+
+    let cursor = BEGIN_SENTENCE_MARKER.length
+    const parsed = []
+    let expectedRole = null
+    let trailingAssistantPromptOnly = false
+
+    while (cursor < transcript.length) {
+        if (expectedRole === null) {
+            if (transcript.startsWith(SYSTEM_MARKER, cursor)) {
+                expectedRole = 'system'
+            } else if (transcript.startsWith(USER_MARKER, cursor)) {
+                expectedRole = 'user'
+            } else if (transcript.startsWith(ASSISTANT_MARKER, cursor)) {
+                expectedRole = 'assistant'
+            } else if (transcript.slice(cursor).trim() === '') {
+                break
+            } else {
+                return null
+            }
+        }
+
+        if (transcript.startsWith(SYSTEM_MARKER, cursor)) {
+            if (expectedRole !== 'system') return null
+            cursor += SYSTEM_MARKER.length
+            const nextInstructionsEnd = transcript.indexOf(END_INSTRUCTIONS_MARKER, cursor)
+            if (nextInstructionsEnd < 0) return null
+            parsed.push({
+                role: 'system',
+                content: transcript.slice(cursor, nextInstructionsEnd),
+            })
+            cursor = nextInstructionsEnd + END_INSTRUCTIONS_MARKER.length
+            expectedRole = 'user'
+            continue
+        }
+
+        if (transcript.startsWith(USER_MARKER, cursor)) {
+            if (expectedRole !== 'user' && expectedRole !== 'user_or_tool' && expectedRole !== 'assistant_or_user') return null
+            cursor += USER_MARKER.length
+            const nextAssistant = transcript.indexOf(ASSISTANT_MARKER, cursor)
+            const nextTool = transcript.indexOf(TOOL_MARKER, cursor)
+            const nextSentenceEnd = transcript.indexOf(END_SENTENCE_MARKER, cursor)
+            let nextRoleIndex = nextAssistant
+            if (nextRoleIndex < 0 || (nextTool >= 0 && nextTool < nextRoleIndex)) {
+                nextRoleIndex = nextTool
+            }
+            if (nextRoleIndex < 0) return null
+            if (nextSentenceEnd >= 0 && nextSentenceEnd < nextRoleIndex) {
+                const assistantStart = skipWhitespace(transcript, nextSentenceEnd + END_SENTENCE_MARKER.length)
+                if (!transcript.startsWith(ASSISTANT_MARKER, assistantStart)) return null
+                parsed.push({
+                    role: 'user',
+                    content: transcript.slice(cursor, nextSentenceEnd),
+                })
+                cursor = assistantStart
+                expectedRole = 'assistant'
+                continue
+            }
+            parsed.push({
+                role: 'user',
+                content: transcript.slice(cursor, nextRoleIndex),
+            })
+            if (transcript.startsWith(TOOL_MARKER, nextRoleIndex)) {
+                cursor = nextRoleIndex
+                expectedRole = 'tool'
+                continue
+            }
+            const assistantStart = nextRoleIndex + ASSISTANT_MARKER.length
+            if (transcript.indexOf(END_SENTENCE_MARKER, assistantStart) < 0) {
+                trailingAssistantPromptOnly = true
+                cursor = assistantStart
+                break
+            }
+            cursor = nextRoleIndex
+            expectedRole = 'assistant'
+            continue
+        }
+
+        if (transcript.startsWith(ASSISTANT_MARKER, cursor)) {
+            if (expectedRole !== 'assistant' && expectedRole !== 'assistant_or_user') return null
+            cursor += ASSISTANT_MARKER.length
+            const nextSentenceEnd = transcript.indexOf(END_SENTENCE_MARKER, cursor)
+            if (nextSentenceEnd < 0) return null
+            parsed.push({
+                role: 'assistant',
+                content: transcript.slice(cursor, nextSentenceEnd),
+            })
+            cursor = nextSentenceEnd + END_SENTENCE_MARKER.length
+            expectedRole = 'user_or_tool'
+            continue
+        }
+
+        if (transcript.startsWith(TOOL_MARKER, cursor)) {
+            if (expectedRole !== 'tool' && expectedRole !== 'user' && expectedRole !== 'user_or_tool') return null
+            cursor += TOOL_MARKER.length
+            const nextToolResultsEnd = transcript.indexOf(END_TOOL_RESULTS_MARKER, cursor)
+            if (nextToolResultsEnd < 0) return null
+            parsed.push({
+                role: 'tool',
+                content: transcript.slice(cursor, nextToolResultsEnd),
+            })
+            cursor = nextToolResultsEnd + END_TOOL_RESULTS_MARKER.length
+            expectedRole = 'assistant_or_user'
+            continue
+        }
+
+        if (
+            parsed.length
+            && (expectedRole === 'user' || expectedRole === 'user_or_tool' || expectedRole === 'assistant_or_user')
+        ) break
+        if (transcript.slice(cursor).trim() === '') break
+        return null
+    }
+
+    if (!parsed.length) {
+        return null
+    }
+
+    if (!trailingAssistantPromptOnly && parsed[parsed.length - 1]?.role !== 'assistant') {
+        return null
+    }
+
+    return parsed
+}
+
+function buildListModeMessages(item, t) {
+    const liveMessages = Array.isArray(item?.messages) && item.messages.length > 0
         ? item.messages
+        : [{ role: 'user', content: item?.user_input || t('chatHistory.emptyUserInput') }]
+    const historyMessages = parseStrictHistoryMessages(item?.history_text)
+
+    if (!historyMessages?.length) {
+        return { messages: liveMessages, historyMerged: false }
+    }
+
+    const placeholderOnly = liveMessages.length === 1
+        && String(liveMessages[0]?.role || '').trim().toLowerCase() === 'user'
+        && String(liveMessages[0]?.content || '').trim() === CURRENT_INPUT_FILE_PROMPT
+
+    if (placeholderOnly) {
+        return { messages: historyMessages, historyMerged: true }
+    }
+
+    const insertAt = liveMessages.findIndex(message => {
+        const role = String(message?.role || '').trim().toLowerCase()
+        return role !== 'system' && role !== 'developer'
+    })
+    const mergedMessages = [...liveMessages]
+    mergedMessages.splice(insertAt < 0 ? mergedMessages.length : insertAt, 0, ...historyMessages)
+
+    return { messages: mergedMessages, historyMerged: true }
+}
+
+function RequestMessages({ item, t, messages }) {
+    const requestMessages = Array.isArray(messages) && messages.length > 0
+        ? messages
         : [{ role: 'user', content: item?.user_input || t('chatHistory.emptyUserInput') }]
 
     return (
         <div className="space-y-5 max-w-4xl mx-auto">
-            {messages.map((message, index) => {
+            {requestMessages.map((message, index) => {
                 const role = message.role || 'user'
                 const isUser = role === 'user'
                 const isAssistant = role === 'assistant'
@@ -121,7 +344,7 @@ function RequestMessages({ item, t }) {
                     ? t('chatHistory.role.user')
                     : (isAssistant ? t('chatHistory.role.assistant') : (isTool ? t('chatHistory.role.tool') : t('chatHistory.role.system')))
                 return (
-                    <div key={`${role}-${index}`} className="flex gap-4">
+                    <div key={`${role}-${index}`} className={clsx('flex gap-4', isUser && 'flex-row-reverse justify-start')}>
                         <div className={clsx(
                             'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-border',
                             isUser
@@ -133,7 +356,7 @@ function RequestMessages({ item, t }) {
                                 : <Bot className="w-4 h-4 text-foreground" />}
                         </div>
                         <div className="max-w-[88%] lg:max-w-[78%] text-left">
-                            <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground mb-2 px-1">
+                            <div className={clsx('text-[11px] uppercase tracking-[0.12em] text-muted-foreground mb-2 px-1', isUser && 'text-right')}>
                                 {label}
                             </div>
                             <div className={clsx(
@@ -156,8 +379,28 @@ function RequestMessages({ item, t }) {
     )
 }
 
-function MergedPromptView({ item, t }) {
+function MergedPromptView({ item, t, onMessage }) {
     const merged = item?.final_prompt || ''
+    const mergedFilename = `Merged_${item?.id || 'prompt'}.txt`
+
+    const handleCopy = async () => {
+        try {
+            await copyTextWithFallback(merged)
+            onMessage?.('success', t('chatHistory.copySuccess'))
+        } catch {
+            onMessage?.('error', t('chatHistory.copyFailed'))
+        }
+    }
+
+    const handleDownload = () => {
+        try {
+            downloadTextFile(mergedFilename, merged)
+            onMessage?.('success', t('chatHistory.downloadSuccess'))
+        } catch {
+            onMessage?.('error', t('chatHistory.downloadFailed'))
+        }
+    }
+
     return (
         <div
             className="max-w-4xl mx-auto rounded-2xl border px-5 py-4"
@@ -166,8 +409,28 @@ function MergedPromptView({ item, t }) {
                 borderColor: 'rgba(231, 176, 8, 0.45)',
             }}
         >
-            <div className="text-[11px] uppercase tracking-[0.12em] text-[#5b4300] mb-3">
-                {t('chatHistory.mergedInput')}
+            <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-[#5b4300]">
+                    {t('chatHistory.mergedInput')}
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleCopy}
+                        className="h-8 w-8 rounded-lg text-[#5b4300] hover:text-black hover:bg-[#fff8db]/45 flex items-center justify-center transition-colors"
+                        title={t('chatHistory.copyMerged')}
+                    >
+                        <Copy className="w-4 h-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="h-8 w-8 rounded-lg text-[#5b4300] hover:text-black hover:bg-[#fff8db]/45 flex items-center justify-center transition-colors"
+                        title={t('chatHistory.downloadMerged')}
+                    >
+                        <Download className="w-4 h-4" />
+                    </button>
+                </div>
             </div>
             <div className="text-sm leading-7 text-[#2f2200] whitespace-pre-wrap break-words font-mono">
                 <ExpandableText
@@ -181,14 +444,53 @@ function MergedPromptView({ item, t }) {
     )
 }
 
-function HistoryTextView({ item, t }) {
+function HistoryTextView({ item, t, onMessage }) {
     const historyText = (item?.history_text || '').trim()
     if (!historyText) return null
+    const historyFilename = `History_${item?.id || 'history'}.txt`
+
+    const handleCopy = async () => {
+        try {
+            await copyTextWithFallback(historyText)
+            onMessage?.('success', t('chatHistory.copySuccess'))
+        } catch {
+            onMessage?.('error', t('chatHistory.copyFailed'))
+        }
+    }
+
+    const handleDownload = () => {
+        try {
+            downloadTextFile(historyFilename, historyText)
+            onMessage?.('success', t('chatHistory.downloadSuccess'))
+        } catch {
+            onMessage?.('error', t('chatHistory.downloadFailed'))
+        }
+    }
 
     return (
         <div className="max-w-4xl mx-auto rounded-2xl border border-border bg-background px-5 py-4">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground mb-3 text-left">
-                HISTORY
+            <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground text-left">
+                    HISTORY
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleCopy}
+                        className="h-8 w-8 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/70 flex items-center justify-center"
+                        title={t('chatHistory.copyHistory')}
+                    >
+                        <Copy className="w-4 h-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="h-8 w-8 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/70 flex items-center justify-center"
+                        title={t('chatHistory.downloadHistory')}
+                    >
+                        <Download className="w-4 h-4" />
+                    </button>
+                </div>
             </div>
             <div className="text-sm leading-7 text-foreground whitespace-pre-wrap break-words font-mono">
                 <ExpandableText
@@ -203,16 +505,18 @@ function HistoryTextView({ item, t }) {
     )
 }
 
-function DetailConversation({ selectedItem, t, viewMode, detailScrollRef, assistantStartRef, bottomButtonClassName }) {
+function DetailConversation({ selectedItem, t, viewMode, detailScrollRef, assistantStartRef, bottomButtonClassName, onMessage }) {
     if (!selectedItem) return null
+    const listModeState = viewMode === 'list' ? buildListModeMessages(selectedItem, t) : null
+    const showHistoryAtTop = viewMode !== 'list' || !listModeState?.historyMerged
 
     return (
         <>
-            <HistoryTextView item={selectedItem} t={t} />
+            {showHistoryAtTop && <HistoryTextView item={selectedItem} t={t} onMessage={onMessage} />}
 
             {viewMode === 'list'
-                ? <RequestMessages item={selectedItem} t={t} />
-                : <MergedPromptView item={selectedItem} t={t} />}
+                ? <RequestMessages item={selectedItem} t={t} messages={listModeState?.messages} />
+                : <MergedPromptView item={selectedItem} t={t} onMessage={onMessage} />}
 
             <div ref={assistantStartRef} className="flex gap-4 max-w-4xl mx-auto">
                 <div className={clsx(
@@ -410,12 +714,12 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     }, [])
 
     useEffect(() => {
-        if (!autoRefreshReady) return undefined
+        if (!autoRefreshReady || limit === DISABLED_LIMIT) return undefined
         const timer = window.setInterval(() => {
             loadList({ mode: 'silent', announceError: false })
         }, 5000)
         return () => window.clearInterval(timer)
-    }, [autoRefreshReady])
+    }, [autoRefreshReady, limit])
 
     useEffect(() => {
         if (!autoRefreshReady || !selectedId || selectedSummary?.status !== 'streaming') return undefined
@@ -494,7 +798,12 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
             setLimit(resolvedLimit)
             listETagRef.current = ''
             syncItems(Array.isArray(data.items) ? data.items : [])
-            onMessage?.('success', t('chatHistory.limitUpdated', { limit: resolvedLimit === DISABLED_LIMIT ? t('chatHistory.off') : resolvedLimit }))
+            onMessage?.(
+                'success',
+                resolvedLimit === DISABLED_LIMIT
+                    ? t('chatHistory.disabledSuccess')
+                    : t('chatHistory.limitUpdated', { limit: resolvedLimit })
+            )
         } catch (error) {
             onMessage?.('error', error.message || t('chatHistory.updateLimitFailed'))
         } finally {
@@ -571,6 +880,12 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
     const handleSelectItem = (itemId, event) => {
         if (isMobileView) {
             openMobileDetail(itemId, event)
+            return
+        }
+        if (itemId === selectedId) {
+            detailETagRef.current = ''
+            setSelectedDetail(null)
+            loadDetail(itemId, { announceError: false })
             return
         }
         setPendingJumpToAssistant(true)
@@ -776,6 +1091,7 @@ export default function ChatHistoryContainer({ authFetch, onMessage }) {
                                 detailScrollRef={detailScrollRef}
                                 assistantStartRef={assistantStartRef}
                                 bottomButtonClassName="absolute right-5 bottom-5"
+                                onMessage={onMessage}
                             />
                         )}
                     </div>

@@ -17,7 +17,11 @@ func (r *Runner) caseReasonerStream(ctx context.Context, cc *caseContext) error 
 			"Authorization": "Bearer " + r.apiKey,
 		},
 		Body: map[string]any{
+<<<<<<< HEAD
 			"model": "deepseek-v4-pro-thinking",
+=======
+			"model": "deepseek-v4-pro",
+>>>>>>> upstream/main
 			"messages": []map[string]any{
 				{"role": "user", "content": "先思考后回答：1+1"},
 			},

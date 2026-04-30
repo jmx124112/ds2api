@@ -51,6 +51,7 @@ func (r *Runner) caseModelsOpenAI(ctx context.Context, cc *caseContext) error {
 	}
 	cc.assert("status_200", resp.StatusCode == http.StatusOK, fmt.Sprintf("status=%d", resp.StatusCode))
 	ids := extractModelIDs(resp.Body)
+<<<<<<< HEAD
 	cc.assert("has_deepseek_v4_flash", contains(ids, "deepseek-v4-flash"), strings.Join(ids, ","))
 	cc.assert("has_deepseek_v4_flash_thinking", contains(ids, "deepseek-v4-flash-thinking"), strings.Join(ids, ","))
 	cc.assert("has_deepseek_v4_flash_search", contains(ids, "deepseek-v4-flash-search"), strings.Join(ids, ","))
@@ -59,6 +60,14 @@ func (r *Runner) caseModelsOpenAI(ctx context.Context, cc *caseContext) error {
 	cc.assert("has_deepseek_v4_pro_thinking", contains(ids, "deepseek-v4-pro-thinking"), strings.Join(ids, ","))
 	cc.assert("has_deepseek_v4_pro_search", contains(ids, "deepseek-v4-pro-search"), strings.Join(ids, ","))
 	cc.assert("has_deepseek_v4_pro_thinking_search", contains(ids, "deepseek-v4-pro-thinking-search"), strings.Join(ids, ","))
+=======
+	cc.assert("has_deepseek_chat", contains(ids, "deepseek-v4-flash"), strings.Join(ids, ","))
+	cc.assert("has_deepseek_reasoner", contains(ids, "deepseek-v4-pro"), strings.Join(ids, ","))
+	cc.assert("has_deepseek_expert_chat", contains(ids, "deepseek-v4-pro"), strings.Join(ids, ","))
+	cc.assert("has_deepseek_expert_reasoner", contains(ids, "deepseek-v4-pro"), strings.Join(ids, ","))
+	cc.assert("has_deepseek_vision_chat", contains(ids, "deepseek-v4-vision"), strings.Join(ids, ","))
+	cc.assert("has_deepseek_vision_reasoner", contains(ids, "deepseek-v4-vision"), strings.Join(ids, ","))
+>>>>>>> upstream/main
 	return nil
 }
 
@@ -71,7 +80,11 @@ func (r *Runner) caseModelOpenAIByID(ctx context.Context, cc *caseContext) error
 	var m map[string]any
 	_ = json.Unmarshal(resp.Body, &m)
 	cc.assert("object_model", asString(m["object"]) == "model", fmt.Sprintf("body=%s", string(resp.Body)))
+<<<<<<< HEAD
 	cc.assert("id_deepseek_v4_flash", asString(m["id"]) == "deepseek-v4-flash", fmt.Sprintf("body=%s", string(resp.Body)))
+=======
+	cc.assert("id_deepseek_chat", asString(m["id"]) == "deepseek-v4-flash", fmt.Sprintf("body=%s", string(resp.Body)))
+>>>>>>> upstream/main
 	return nil
 }
 func (r *Runner) caseChatNonstream(ctx context.Context, cc *caseContext) error {
