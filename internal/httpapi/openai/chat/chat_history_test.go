@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 
 func newTestChatHistoryStore(t *testing.T) *chathistory.Store {
 	t.Helper()
-	store := chathistory.New(filepath.Join(t.TempDir(), "chat_history.db"))
+	store := chathistory.New(filepath.Join(t.TempDir(), "chat_history.json"))
 	if err := store.Err(); err != nil {
 		t.Fatalf("chat history store unavailable: %v", err)
 	}
@@ -31,7 +32,7 @@ func newTestChatHistoryStore(t *testing.T) *chathistory.Store {
 func TestChatCompletionsNonStreamPersistsHistory(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 	h := &Handler{
-		Store:       mockOpenAIConfig{wideInput: true},
+		Store:       mockOpenAIConfig{},
 		Auth:        streamStatusAuthStub{},
 		DS:          streamStatusDSStub{resp: makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":"hello world"}`, `data: [DONE]`)},
 		ChatHistory: historyStore,
@@ -76,7 +77,87 @@ func TestChatCompletionsNonStreamPersistsHistory(t *testing.T) {
 	}
 }
 
-func TestStartChatHistoryCreatesSession(t *testing.T) {
+func TestChatHistoryNonStreamArchivesRawToolCallMarkup(t *testing.T) {
+	historyStore := newTestChatHistoryStore(t)
+	entry, err := historyStore.Start(chathistory.StartParams{
+		CallerID:  "caller:test",
+		Model:     "deepseek-v4-flash",
+		UserInput: "call tool",
+	})
+	if err != nil {
+		t.Fatalf("start history failed: %v", err)
+	}
+	session := &chatHistorySession{
+		store:       historyStore,
+		entryID:     entry.ID,
+		startedAt:   time.Now(),
+		lastPersist: time.Now().Add(-time.Second),
+		finalPrompt: "call tool",
+	}
+	rawToolCall := `<tool_calls><invoke name="search"><parameter name="q">golang</parameter></invoke></tool_calls>`
+
+	h := &Handler{}
+	rec := httptest.NewRecorder()
+	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":`+strconv.Quote(rawToolCall)+`}`, `data: [DONE]`)
+	h.handleNonStream(rec, resp, "cid-tool-history", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	full, err := historyStore.Get(entry.ID)
+	if err != nil {
+		t.Fatalf("get detail failed: %v", err)
+	}
+	if full.Content != rawToolCall {
+		t.Fatalf("expected raw tool markup archived, got %q", full.Content)
+	}
+	if full.FinishReason != "tool_calls" {
+		t.Fatalf("expected tool_calls finish reason, got %#v", full.FinishReason)
+	}
+}
+
+func TestChatHistoryStreamArchivesRawToolCallMarkup(t *testing.T) {
+	historyStore := newTestChatHistoryStore(t)
+	entry, err := historyStore.Start(chathistory.StartParams{
+		CallerID:  "caller:test",
+		Model:     "deepseek-v4-flash",
+		Stream:    true,
+		UserInput: "call tool",
+	})
+	if err != nil {
+		t.Fatalf("start history failed: %v", err)
+	}
+	session := &chatHistorySession{
+		store:       historyStore,
+		entryID:     entry.ID,
+		startedAt:   time.Now(),
+		lastPersist: time.Now().Add(-time.Second),
+		finalPrompt: "call tool",
+	}
+	rawToolCall := `<tool_calls><invoke name="search"><parameter name="q">golang</parameter></invoke></tool_calls>`
+
+	h := &Handler{}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":`+strconv.Quote(rawToolCall)+`}`, `data: [DONE]`)
+	h.handleStream(rec, req, resp, "cid-stream-tool-history", "deepseek-v4-flash", "prompt", 0, false, false, []string{"search"}, nil, session)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	full, err := historyStore.Get(entry.ID)
+	if err != nil {
+		t.Fatalf("get detail failed: %v", err)
+	}
+	if full.Content != rawToolCall {
+		t.Fatalf("expected raw streamed tool markup archived, got %q", full.Content)
+	}
+	if full.FinishReason != "tool_calls" {
+		t.Fatalf("expected tool_calls finish reason, got %#v", full.FinishReason)
+	}
+}
+
+func TestStartChatHistoryRecoversFromMissingEntry(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -86,11 +167,7 @@ func TestStartChatHistoryCreatesSession(t *testing.T) {
 		CallerID:  "caller:test",
 		AccountID: "acct:test",
 	}
-<<<<<<< HEAD:internal/adapter/openai/chat_history_test.go
-	stdReq := util.StandardRequest{
-=======
 	stdReq := promptcompat.StandardRequest{
->>>>>>> upstream/main:internal/httpapi/openai/chat/chat_history_test.go
 		ResponseModel: "deepseek-v4-flash",
 		Stream:        true,
 		Messages: []any{
@@ -101,32 +178,38 @@ func TestStartChatHistoryCreatesSession(t *testing.T) {
 
 	session := startChatHistory(historyStore, req, a, stdReq)
 	if session == nil {
-		t.Fatalf("expected session to be created")
-	}
-	if session.disabled {
-		t.Fatalf("expected session to stay active")
+		t.Fatalf("expected session")
 	}
 	if session.entryID == "" {
 		t.Fatalf("expected session entry id")
 	}
+	if err := historyStore.Delete(session.entryID); err != nil {
+		t.Fatalf("delete initial history entry failed: %v", err)
+	}
 
 	session.lastPersist = time.Now().Add(-time.Second)
 	session.progress("thinking", "partial")
-	session.success(http.StatusOK, "thinking", "final answer", "stop", map[string]any{"total_tokens": 7})
+	if session.disabled {
+		t.Fatalf("expected session to remain active after missing entry retry")
+	}
+	if session.entryID == "" {
+		t.Fatalf("expected session entry id to remain set after retry")
+	}
 
+	session.success(http.StatusOK, "thinking", "final answer", "stop", map[string]any{"total_tokens": 7})
 	snapshot, err := historyStore.Snapshot()
 	if err != nil {
-		t.Fatalf("snapshot failed: %v", err)
+		t.Fatalf("snapshot failed after retry: %v", err)
 	}
 	if len(snapshot.Items) != 1 {
-		t.Fatalf("expected one item, got %#v", snapshot.Items)
+		t.Fatalf("expected one persisted item after retry, got %#v", snapshot.Items)
 	}
 	full, err := historyStore.Get(session.entryID)
 	if err != nil {
-		t.Fatalf("get entry failed: %v", err)
+		t.Fatalf("get recreated entry failed: %v", err)
 	}
 	if full.Status != "success" || full.Content != "final answer" {
-		t.Fatalf("expected final success state, got %#v", full)
+		t.Fatalf("expected recreated entry to persist final success, got %#v", full)
 	}
 }
 
@@ -156,11 +239,7 @@ func TestHandleStreamContextCancelledMarksHistoryStopped(t *testing.T) {
 	rec := httptest.NewRecorder()
 	resp := makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":"hello"}`, `data: [DONE]`)
 
-<<<<<<< HEAD:internal/adapter/openai/chat_history_test.go
-	h.handleStream(rec, req, resp, "cid-stop", "deepseek-v4-flash", "prompt", false, false, nil, session)
-=======
-	h.handleStream(rec, req, resp, "cid-stop", "deepseek-v4-flash", "prompt", false, false, nil, nil, session)
->>>>>>> upstream/main:internal/httpapi/openai/chat/chat_history_test.go
+	h.handleStream(rec, req, resp, "cid-stop", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, session)
 
 	snapshot, err := historyStore.Snapshot()
 	if err != nil {
@@ -178,10 +257,10 @@ func TestHandleStreamContextCancelledMarksHistoryStopped(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsSkipsAdminWebUISource(t *testing.T) {
+func TestChatCompletionsRecordsAdminWebUISource(t *testing.T) {
 	historyStore := newTestChatHistoryStore(t)
 	h := &Handler{
-		Store:       mockOpenAIConfig{wideInput: true},
+		Store:       mockOpenAIConfig{},
 		Auth:        streamStatusAuthStub{},
 		DS:          streamStatusDSStub{resp: makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":"hello world"}`, `data: [DONE]`)},
 		ChatHistory: historyStore,
@@ -191,7 +270,7 @@ func TestChatCompletionsSkipsAdminWebUISource(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(adminWebUISourceHeader, adminWebUISourceValue)
+	req.Header.Set("X-Ds2-Source", "admin-webui-api-tester")
 	rec := httptest.NewRecorder()
 	h.ChatCompletions(rec, req)
 
@@ -202,8 +281,8 @@ func TestChatCompletionsSkipsAdminWebUISource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
-	if len(snapshot.Items) != 0 {
-		t.Fatalf("expected admin webui source to be skipped, got %#v", snapshot.Items)
+	if len(snapshot.Items) != 1 {
+		t.Fatalf("expected admin webui source to be recorded, got %#v", snapshot.Items)
 	}
 }
 
@@ -213,7 +292,7 @@ func TestChatCompletionsSkipsHistoryWhenDisabled(t *testing.T) {
 		t.Fatalf("disable history store failed: %v", err)
 	}
 	h := &Handler{
-		Store:       mockOpenAIConfig{wideInput: true},
+		Store:       mockOpenAIConfig{},
 		Auth:        streamStatusAuthStub{},
 		DS:          streamStatusDSStub{resp: makeOpenAISSEHTTPResponse(`data: {"p":"response/content","v":"hello world"}`, `data: [DONE]`)},
 		ChatHistory: historyStore,
@@ -243,7 +322,6 @@ func TestChatCompletionsCurrentInputFilePersistsNeutralPrompt(t *testing.T) {
 	ds := &inlineUploadDSStub{}
 	h := &Handler{
 		Store: mockOpenAIConfig{
-			wideInput:           true,
 			currentInputEnabled: true,
 		},
 		Auth:        streamStatusAuthStub{},
@@ -276,16 +354,16 @@ func TestChatCompletionsCurrentInputFilePersistsNeutralPrompt(t *testing.T) {
 	if len(ds.uploadCalls) != 1 {
 		t.Fatalf("expected current input upload to happen, got %d", len(ds.uploadCalls))
 	}
-	if ds.uploadCalls[0].Filename != "history.txt" {
-		t.Fatalf("expected history.txt upload, got %q", ds.uploadCalls[0].Filename)
+	if ds.uploadCalls[0].Filename != "DS2API_HISTORY.txt" {
+		t.Fatalf("expected DS2API_HISTORY.txt upload, got %q", ds.uploadCalls[0].Filename)
 	}
 	if full.HistoryText != string(ds.uploadCalls[0].Data) {
 		t.Fatalf("expected uploaded current input file to be persisted in history text")
 	}
 	if len(full.Messages) != 1 {
-		t.Fatalf("expected neutral prompt to be the only persisted message, got %#v", full.Messages)
+		t.Fatalf("expected continuation prompt to be the only persisted message, got %#v", full.Messages)
 	}
-	if !strings.Contains(full.Messages[0].Content, "Answer the latest user request directly.") {
-		t.Fatalf("expected neutral prompt to be persisted, got %#v", full.Messages[0])
+	if !strings.Contains(full.Messages[0].Content, "Continue from the latest state in the attached DS2API_HISTORY.txt context.") {
+		t.Fatalf("expected continuation prompt to be persisted, got %#v", full.Messages[0])
 	}
 }

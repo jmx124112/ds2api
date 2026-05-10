@@ -9,11 +9,7 @@
         "role": "user"
       }
     ],
-<<<<<<< HEAD
-    "model": "deepseek-v4-pro-thinking-search",
-=======
     "model": "deepseek-v4-pro-search",
->>>>>>> upstream/main
     "stream": true
   },
   "capture": {

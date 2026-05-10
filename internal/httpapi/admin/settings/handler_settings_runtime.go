@@ -42,16 +42,3 @@ func defaultRuntimeRecommended(accountCount, maxPer int) int {
 	}
 	return accountCount * maxPer
 }
-<<<<<<< HEAD:internal/admin/handler_settings_runtime.go
-
-func settingsClaudeMapping(c config.Config) map[string]string {
-	if len(c.ClaudeMapping) > 0 {
-		return c.ClaudeMapping
-	}
-	if len(c.ClaudeModelMap) > 0 {
-		return c.ClaudeModelMap
-	}
-	return map[string]string{"fast": "deepseek-v4-flash", "slow": "deepseek-v4-pro-thinking"}
-}
-=======
->>>>>>> upstream/main:internal/httpapi/admin/settings/handler_settings_runtime.go

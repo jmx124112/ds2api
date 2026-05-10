@@ -8,10 +8,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+var warnOnce sync.Once
 
 type AdminConfigReader interface {
 	AdminPasswordHash() string
@@ -20,7 +26,20 @@ type AdminConfigReader interface {
 }
 
 func AdminKey() string {
-	return ""
+	return effectiveAdminKey(nil)
+}
+
+func effectiveAdminKey(store AdminConfigReader) string {
+	if adminPasswordHash(store) != "" {
+		return ""
+	}
+	if v := strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY")); v != "" {
+		return v
+	}
+	warnOnce.Do(func() {
+		slog.Warn("DS2API_ADMIN_KEY is not set; using insecure default admin key \"admin\". Set a strong key or initialize an admin password in production.")
+	})
+	return "admin"
 }
 
 func adminPasswordHash(store AdminConfigReader) string {
@@ -31,15 +50,23 @@ func adminPasswordHash(store AdminConfigReader) string {
 }
 
 func jwtSecret(store AdminConfigReader) string {
+	if v := strings.TrimSpace(os.Getenv("DS2API_JWT_SECRET")); v != "" {
+		return v
+	}
 	if hash := adminPasswordHash(store); hash != "" {
 		return hash
 	}
-	return "ds2api-admin-setup-pending"
+	return effectiveAdminKey(store)
 }
 
 func jwtExpireHours(store AdminConfigReader) int {
 	if store != nil {
 		if n := store.AdminJWTExpireHours(); n > 0 {
+			return n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("DS2API_JWT_EXPIRE_HOURS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
 	}
@@ -51,9 +78,6 @@ func CreateJWT(expireHours int) (string, error) {
 }
 
 func CreateJWTWithStore(expireHours int, store AdminConfigReader) (string, error) {
-	if store != nil && adminPasswordHash(store) == "" {
-		return "", errors.New("admin password is not initialized")
-	}
 	if expireHours <= 0 {
 		expireHours = jwtExpireHours(store)
 	}
@@ -146,15 +170,21 @@ func VerifyAdminCredential(candidate string, store AdminConfigReader) bool {
 	if candidate == "" {
 		return false
 	}
-	hash := adminPasswordHash(store)
-	if hash == "" {
+	if hash := adminPasswordHash(store); hash != "" {
+		return verifyAdminPasswordHash(candidate, hash)
+	}
+	key := effectiveAdminKey(store)
+	if key == "" {
 		return false
 	}
-	return verifyAdminPasswordHash(candidate, hash)
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(key)) == 1
 }
 
 func UsingDefaultAdminKey(store AdminConfigReader) bool {
-	return false
+	if adminPasswordHash(store) != "" {
+		return false
+	}
+	return strings.TrimSpace(os.Getenv("DS2API_ADMIN_KEY")) == ""
 }
 
 func HashAdminPassword(raw string) string {

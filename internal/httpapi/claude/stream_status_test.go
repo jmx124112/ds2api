@@ -21,18 +21,10 @@ func (streamStatusClaudeOpenAIStub) ChatCompletions(w http.ResponseWriter, _ *ht
 
 type streamStatusClaudeStoreStub struct{}
 
-<<<<<<< HEAD:internal/adapter/claude/stream_status_test.go
-func (streamStatusClaudeStoreStub) ClaudeMapping() map[string]string {
-	return map[string]string{
-		"fast": "deepseek-v4-flash",
-		"slow": "deepseek-v4-pro-thinking",
-	}
-}
-=======
 func (streamStatusClaudeStoreStub) ModelAliases() map[string]string { return nil }
->>>>>>> upstream/main:internal/httpapi/claude/stream_status_test.go
 
-func (streamStatusClaudeStoreStub) CompatStripReferenceMarkers() bool { return true }
+func (streamStatusClaudeStoreStub) CurrentInputFileEnabled() bool { return true }
+func (streamStatusClaudeStoreStub) CurrentInputFileMinChars() int { return 0 }
 
 func captureClaudeStatusMiddleware(statuses *[]int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

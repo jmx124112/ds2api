@@ -1,4 +1,4 @@
-﻿package chathistory
+package chathistory
 
 import (
 	"context"
@@ -48,6 +48,7 @@ type Entry struct {
 	Status           string         `json:"status"`
 	CallerID         string         `json:"caller_id,omitempty"`
 	AccountID        string         `json:"account_id,omitempty"`
+	Surface          string         `json:"surface,omitempty"`
 	Model            string         `json:"model,omitempty"`
 	Stream           bool           `json:"stream"`
 	UserInput        string         `json:"user_input,omitempty"`
@@ -77,6 +78,7 @@ type SummaryEntry struct {
 	Status         string `json:"status"`
 	CallerID       string `json:"caller_id,omitempty"`
 	AccountID      string `json:"account_id,omitempty"`
+	Surface        string `json:"surface,omitempty"`
 	Model          string `json:"model,omitempty"`
 	Stream         bool   `json:"stream"`
 	UserInput      string `json:"user_input,omitempty"`
@@ -98,6 +100,7 @@ type File struct {
 type StartParams struct {
 	CallerID    string
 	AccountID   string
+	Surface     string
 	Model       string
 	Stream      bool
 	UserInput   string
@@ -290,6 +293,7 @@ func (s *Store) Start(params StartParams) (Entry, error) {
 		Status:      "streaming",
 		CallerID:    strings.TrimSpace(params.CallerID),
 		AccountID:   strings.TrimSpace(params.AccountID),
+		Surface:     strings.TrimSpace(params.Surface),
 		Model:       strings.TrimSpace(params.Model),
 		Stream:      params.Stream,
 		UserInput:   strings.TrimSpace(params.UserInput),
@@ -357,8 +361,12 @@ func (s *Store) Update(id string, params UpdateParams) (Entry, error) {
 	if params.Status != "" {
 		item.Status = params.Status
 	}
-	item.ReasoningContent = params.ReasoningContent
-	item.Content = params.Content
+	if params.ReasoningContent != "" || item.ReasoningContent == "" {
+		item.ReasoningContent = params.ReasoningContent
+	}
+	if params.Content != "" || item.Content == "" {
+		item.Content = params.Content
+	}
 	item.Error = strings.TrimSpace(params.Error)
 	item.StatusCode = params.StatusCode
 	item.ElapsedMs = params.ElapsedMs
@@ -646,6 +654,7 @@ func (s *Store) ensureSchemaLocked() error {
 			status TEXT NOT NULL,
 			caller_id TEXT NOT NULL DEFAULT '',
 			account_id TEXT NOT NULL DEFAULT '',
+			surface TEXT NOT NULL DEFAULT '',
 			model TEXT NOT NULL DEFAULT '',
 			stream INTEGER NOT NULL DEFAULT 0,
 			user_input TEXT NOT NULL DEFAULT '',
@@ -660,6 +669,7 @@ func (s *Store) ensureSchemaLocked() error {
 			finish_reason TEXT NOT NULL DEFAULT '',
 			usage_json TEXT NOT NULL DEFAULT ''
 		)`,
+		`ALTER TABLE entries ADD COLUMN surface TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON entries(updated_at DESC, created_at DESC)`,
 		fmt.Sprintf(
 			`INSERT INTO state(id, version, limit_value, revision, total_calls, success_calls, failed_calls)
@@ -671,6 +681,9 @@ func (s *Store) ensureSchemaLocked() error {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(context.Background(), stmt); err != nil {
+			if strings.Contains(err.Error(), "duplicate column name: surface") {
+				continue
+			}
 			return fmt.Errorf("init chat history sqlite schema: %w", err)
 		}
 	}
@@ -754,10 +767,10 @@ func (s *Store) insertEntryLocked(q queryer, item Entry) error {
 	if _, err := q.ExecContext(
 		context.Background(),
 		`INSERT INTO entries (
-			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model, stream,
+			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, surface, model, stream,
 			user_input, messages_json, history_text, final_prompt, reasoning_content, content, error_text,
 			status_code, elapsed_ms, finish_reason, usage_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID,
 		item.Revision,
 		item.CreatedAt,
@@ -766,6 +779,7 @@ func (s *Store) insertEntryLocked(q queryer, item Entry) error {
 		item.Status,
 		item.CallerID,
 		item.AccountID,
+		item.Surface,
 		item.Model,
 		boolToInt(item.Stream),
 		item.UserInput,
@@ -797,7 +811,7 @@ func (s *Store) updateEntryLocked(q queryer, item Entry) error {
 	if _, err := q.ExecContext(
 		context.Background(),
 		`UPDATE entries SET
-			revision = ?, updated_at = ?, completed_at = ?, status = ?, caller_id = ?, account_id = ?, model = ?, stream = ?,
+			revision = ?, updated_at = ?, completed_at = ?, status = ?, caller_id = ?, account_id = ?, surface = ?, model = ?, stream = ?,
 			user_input = ?, messages_json = ?, history_text = ?, final_prompt = ?, reasoning_content = ?, content = ?,
 			error_text = ?, status_code = ?, elapsed_ms = ?, finish_reason = ?, usage_json = ?
 		WHERE id = ?`,
@@ -807,6 +821,7 @@ func (s *Store) updateEntryLocked(q queryer, item Entry) error {
 		item.Status,
 		item.CallerID,
 		item.AccountID,
+		item.Surface,
 		item.Model,
 		boolToInt(item.Stream),
 		item.UserInput,
@@ -848,7 +863,7 @@ func (s *Store) trimEntriesToLimitLocked(q queryer, limit int) error {
 
 func (s *Store) listSummaryEntriesLocked(q queryer, limit int) ([]SummaryEntry, error) {
 	query := `SELECT
-		id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model,
+		id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, surface, model,
 		stream, user_input, status_code, elapsed_ms, finish_reason, reasoning_content, content, error_text
 	FROM entries
 	ORDER BY updated_at DESC, created_at DESC`
@@ -878,6 +893,7 @@ func (s *Store) listSummaryEntriesLocked(q queryer, limit int) ([]SummaryEntry, 
 			&item.Status,
 			&item.CallerID,
 			&item.AccountID,
+			&item.Surface,
 			&item.Model,
 			&streamFlag,
 			&item.UserInput,
@@ -909,7 +925,7 @@ func (s *Store) getEntryLocked(q queryer, id string) (Entry, error) {
 	err := q.QueryRowContext(
 		context.Background(),
 		`SELECT
-			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, model, stream,
+			id, revision, created_at, updated_at, completed_at, status, caller_id, account_id, surface, model, stream,
 			user_input, messages_json, history_text, final_prompt, reasoning_content, content, error_text,
 			status_code, elapsed_ms, finish_reason, usage_json
 		FROM entries
@@ -924,6 +940,7 @@ func (s *Store) getEntryLocked(q queryer, id string) (Entry, error) {
 		&item.Status,
 		&item.CallerID,
 		&item.AccountID,
+		&item.Surface,
 		&item.Model,
 		&streamFlag,
 		&item.UserInput,
@@ -969,6 +986,7 @@ func summaryFromEntry(item Entry) SummaryEntry {
 		Status:         item.Status,
 		CallerID:       item.CallerID,
 		AccountID:      item.AccountID,
+		Surface:        item.Surface,
 		Model:          item.Model,
 		Stream:         item.Stream,
 		UserInput:      item.UserInput,

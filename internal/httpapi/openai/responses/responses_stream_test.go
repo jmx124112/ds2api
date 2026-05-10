@@ -27,11 +27,7 @@ func TestHandleResponsesStreamDoesNotEmitReasoningTextCompatEvents(t *testing.T)
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro-thinking", "prompt", true, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", 0, true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "event: response.reasoning.delta") {
@@ -61,11 +57,7 @@ func TestHandleResponsesStreamEmitsOutputTextDoneBeforeContentPartDone(t *testin
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 	body := rec.Body.String()
 	if !strings.Contains(body, "event: response.output_text.done") {
 		t.Fatalf("expected response.output_text.done payload, body=%s", body)
@@ -99,11 +91,7 @@ func TestHandleResponsesStreamOutputTextDeltaCarriesItemIndexes(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 	body := rec.Body.String()
 
 	deltaPayload, ok := extractSSEEventPayload(body, "response.output_text.delta")
@@ -118,6 +106,48 @@ func TestHandleResponsesStreamOutputTextDeltaCarriesItemIndexes(t *testing.T) {
 	}
 	if _, ok := deltaPayload["content_index"]; !ok {
 		t.Fatalf("expected content_index in output_text.delta, payload=%#v", deltaPayload)
+	}
+}
+
+func TestHandleResponsesStreamCoalescesSmallOutputTextDeltas(t *testing.T) {
+	h := &Handler{}
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	rec := httptest.NewRecorder()
+
+	var streamBody strings.Builder
+	for i := 0; i < 100; i++ {
+		b, _ := json.Marshal(map[string]any{
+			"p": "response/content",
+			"v": "字",
+		})
+		streamBody.WriteString("data: ")
+		streamBody.WriteString(string(b))
+		streamBody.WriteString("\n")
+	}
+	streamBody.WriteString("data: [DONE]\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(streamBody.String())),
+	}
+
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_coalesce", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
+
+	payloads := extractSSEEventPayloads(rec.Body.String(), "response.output_text.delta")
+	if len(payloads) == 0 {
+		t.Fatalf("expected response.output_text.delta payloads, body=%s", rec.Body.String())
+	}
+	var content strings.Builder
+	for _, payload := range payloads {
+		content.WriteString(asString(payload["delta"]))
+	}
+	if got, want := content.String(), strings.Repeat("字", 100); got != want {
+		t.Fatalf("coalesced response content mismatch: got %q want %q body=%s", got, want, rec.Body.String())
+	}
+	if len(payloads) >= 100 {
+		t.Fatalf("expected coalescing to reduce 100 tiny text deltas, got %d body=%s", len(payloads), rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "event: response.completed") {
+		t.Fatalf("expected completed event, body=%s", rec.Body.String())
 	}
 }
 
@@ -142,11 +172,7 @@ func TestHandleResponsesStreamEmitsDistinctToolCallIDsAcrossSeparateToolBlocks(t
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file", "search"}, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file", "search"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, []string{"read_file", "search"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
 
 	body := rec.Body.String()
 	doneEvents := extractSSEEventPayloads(body, "response.function_call_arguments.done")
@@ -199,11 +225,7 @@ func TestHandleResponsesStreamRequiredToolChoiceFailure(t *testing.T) {
 		Mode:    promptcompat.ToolChoiceRequired,
 		Allowed: map[string]struct{}{"read_file": {}},
 	}
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file"}, policy, "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file"}, nil, policy, "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, []string{"read_file"}, nil, policy, "")
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "event: response.failed") {
@@ -233,11 +255,7 @@ func TestHandleResponsesStreamFailsWhenUpstreamHasOnlyThinking(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro-thinking", "prompt", true, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", 0, true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "event: response.failed") {
@@ -275,7 +293,7 @@ func TestHandleResponsesStreamPromotesThinkingToolCallsOnFinalizeWithoutMidstrea
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", true, false, []string{"read_file"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", 0, true, false, []string{"read_file"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
 
 	body := rec.Body.String()
 	if strings.Contains(body, "event: response.reasoning.delta") {
@@ -312,7 +330,7 @@ func TestHandleResponsesStreamPromotesHiddenThinkingDSMLToolCallsOnFinalize(t *t
 		Mode:    promptcompat.ToolChoiceRequired,
 		Allowed: map[string]struct{}{"read_file": {}},
 	}
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_hidden", "deepseek-v4-pro", "prompt", false, false, []string{"read_file"}, nil, policy, "")
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_hidden", "deepseek-v4-pro", "prompt", 0, false, false, []string{"read_file"}, nil, policy, "")
 
 	body := rec.Body.String()
 	if strings.Contains(body, "event: response.reasoning.delta") {
@@ -341,11 +359,7 @@ func TestHandleResponsesNonStreamRequiredToolChoiceViolation(t *testing.T) {
 		Allowed: map[string]struct{}{"read_file": {}},
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file"}, policy, "")
-=======
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, []string{"read_file"}, nil, policy, "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, []string{"read_file"}, nil, policy, "")
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for required tool_choice violation, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -372,11 +386,7 @@ func TestHandleResponsesNonStreamRequiredToolChoiceIgnoresThinkingToolPayloadWhe
 		Allowed: map[string]struct{}{"read_file": {}},
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", true, false, []string{"read_file"}, policy, "")
-=======
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", true, false, []string{"read_file"}, nil, policy, "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, true, false, []string{"read_file"}, nil, policy, "")
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for required tool_choice violation, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -387,7 +397,7 @@ func TestHandleResponsesNonStreamRequiredToolChoiceIgnoresThinkingToolPayloadWhe
 	}
 }
 
-func TestHandleResponsesNonStreamReturns429WhenUpstreamOutputEmpty(t *testing.T) {
+func TestHandleResponsesNonStreamSingleAttemptReturns503WhenUpstreamOutputEmpty(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
 	resp := &http.Response{
@@ -398,22 +408,18 @@ func TestHandleResponsesNonStreamReturns429WhenUpstreamOutputEmpty(t *testing.T)
 		)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 for empty upstream output, got %d body=%s", rec.Code, rec.Body.String())
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for empty upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
 	out := decodeJSONBody(t, rec.Body.String())
 	errObj, _ := out["error"].(map[string]any)
-	if asString(errObj["code"]) != "upstream_empty_output" {
-		t.Fatalf("expected code=upstream_empty_output, got %#v", out)
+	if asString(errObj["code"]) != "upstream_unavailable" {
+		t.Fatalf("expected code=upstream_unavailable, got %#v", out)
 	}
 }
 
-func TestHandleResponsesNonStreamReturnsContentFilterErrorWhenUpstreamFilteredWithoutOutput(t *testing.T) {
+func TestHandleResponsesNonStreamSingleAttemptReturnsContentFilterErrorWhenUpstreamFilteredWithoutOutput(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
 	resp := &http.Response{
@@ -424,11 +430,7 @@ func TestHandleResponsesNonStreamReturnsContentFilterErrorWhenUpstreamFilteredWi
 		)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-flash", "prompt", 0, false, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for filtered empty upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -439,7 +441,7 @@ func TestHandleResponsesNonStreamReturnsContentFilterErrorWhenUpstreamFilteredWi
 	}
 }
 
-func TestHandleResponsesNonStreamReturns429WhenUpstreamHasOnlyThinking(t *testing.T) {
+func TestHandleResponsesNonStreamSingleAttemptReturns429WhenUpstreamHasOnlyThinking(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
 	resp := &http.Response{
@@ -450,11 +452,7 @@ func TestHandleResponsesNonStreamReturns429WhenUpstreamHasOnlyThinking(t *testin
 		)),
 	}
 
-<<<<<<< HEAD:internal/adapter/openai/responses_stream_test.go
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-pro-thinking", "prompt", true, false, nil, util.DefaultToolChoicePolicy(), "")
-=======
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
->>>>>>> upstream/main:internal/httpapi/openai/responses/responses_stream_test.go
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", 0, true, false, nil, nil, promptcompat.DefaultToolChoicePolicy(), "")
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 for thinking-only upstream output, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -476,7 +474,7 @@ func TestHandleResponsesNonStreamPromotesThinkingToolCallsWhenTextEmpty(t *testi
 		)),
 	}
 
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", true, false, []string{"read_file"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_test", "deepseek-v4-pro", "prompt", 0, true, false, []string{"read_file"}, nil, promptcompat.DefaultToolChoicePolicy(), "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for thinking tool calls, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -506,7 +504,7 @@ func TestHandleResponsesNonStreamPromotesHiddenThinkingDSMLToolCallsWhenTextEmpt
 		Mode:    promptcompat.ToolChoiceRequired,
 		Allowed: map[string]struct{}{"read_file": {}},
 	}
-	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_hidden", "deepseek-v4-pro", "prompt", false, false, []string{"read_file"}, nil, policy, "")
+	h.handleResponsesNonStream(rec, resp, "owner-a", "resp_hidden", "deepseek-v4-pro", "prompt", 0, false, false, []string{"read_file"}, nil, policy, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for hidden thinking tool calls, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -553,7 +551,7 @@ func TestHandleResponsesStreamCoercesSchemaDeclaredStringArguments(t *testing.T)
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_string_protect", "deepseek-v4-flash", "prompt", false, false, []string{"Write"}, toolsRaw, promptcompat.DefaultToolChoicePolicy(), "")
+	h.handleResponsesStream(rec, req, resp, "owner-a", "resp_string_protect", "deepseek-v4-flash", "prompt", 0, false, false, []string{"Write"}, toolsRaw, promptcompat.DefaultToolChoicePolicy(), "")
 
 	payload, ok := extractSSEEventPayload(rec.Body.String(), "response.function_call_arguments.done")
 	if !ok {

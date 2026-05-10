@@ -12,8 +12,8 @@ func TestContainerDefaultConfigPath(t *testing.T) {
 		if _, err := os.Stat("/data"); err == nil {
 			t.Skip("/data exists in this environment; cannot validate missing-/data fallback")
 		}
-		if got := containerDefaultConfigPath(); got != "/app/config.json" {
-			t.Fatalf("containerDefaultConfigPath() = %q, want %q", got, "/app/config.json")
+		if got := containerDefaultConfigPath(); got != "/app/data/config.db" {
+			t.Fatalf("containerDefaultConfigPath() = %q, want %q", got, "/app/data/config.db")
 		}
 	})
 
@@ -21,8 +21,8 @@ func TestContainerDefaultConfigPath(t *testing.T) {
 		if _, err := os.Stat("/data"); err != nil {
 			t.Skip("/data does not exist in this environment")
 		}
-		if got := containerDefaultConfigPath(); got != "/data/config.json" {
-			t.Fatalf("containerDefaultConfigPath() = %q, want %q", got, "/data/config.json")
+		if got := containerDefaultConfigPath(); got != "/data/config.db" {
+			t.Fatalf("containerDefaultConfigPath() = %q, want %q", got, "/data/config.db")
 		}
 	})
 }

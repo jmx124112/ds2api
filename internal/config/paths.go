@@ -30,23 +30,19 @@ func ResolvePath(envKey, defaultRel string) string {
 }
 
 func ConfigPath() string {
-<<<<<<< HEAD
-	return filepath.Join(BaseDir(), "data", "config.db")
-=======
 	if strings.TrimSpace(os.Getenv("DS2API_CONFIG_PATH")) == "" && BaseDir() == "/app" {
 		return containerDefaultConfigPath()
 	}
-	return ResolvePath("DS2API_CONFIG_PATH", "config.json")
->>>>>>> upstream/main
+	return ResolvePath("DS2API_CONFIG_PATH", filepath.Join("data", "config.db"))
 }
 
 func containerDefaultConfigPath() string {
 	// Container images run as non-root by default. Only use /data when mounted/provisioned.
 	// Otherwise keep /app/config.json so admin-side save does not fail on MkdirAll("/data").
 	if st, err := os.Stat("/data"); err == nil && st.IsDir() {
-		return "/data/config.json"
+		return "/data/config.db"
 	}
-	return "/app/config.json"
+	return "/app/data/config.db"
 }
 
 func legacyContainerConfigPath() string {
@@ -62,7 +58,12 @@ func RawStreamSampleRoot() string {
 }
 
 func ChatHistoryPath() string {
-	return ResolvePath("DS2API_CHAT_HISTORY_PATH", "data/chat_history.db")
+	// On Vercel, /var/task is read-only at runtime. If no explicit path is set,
+	// default to /tmp/chat_history.db (the only writable directory).
+	if IsVercel() && strings.TrimSpace(os.Getenv("DS2API_CHAT_HISTORY_PATH")) == "" {
+		return "/tmp/chat_history.db"
+	}
+	return ResolvePath("DS2API_CHAT_HISTORY_PATH", filepath.Join("data", "chat_history.db"))
 }
 
 func StaticAdminDir() string {

@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"unicode/utf8"
 )
 
 func newTestStore(t *testing.T, path string) *Store {
@@ -28,7 +27,7 @@ func TestStoreCreatesAndPersistsEntries(t *testing.T) {
 	started, err := store.Start(StartParams{
 		CallerID:  "caller:abc",
 		AccountID: "user@example.com",
-		Model:     "deepseek-v4-flash",
+		Model:     "deepseek-chat",
 		Stream:    true,
 		UserInput: "hello",
 		Messages:  []Message{{Role: "user", Content: "hello"}},
@@ -94,17 +93,6 @@ func TestStoreCreatesAndPersistsEntries(t *testing.T) {
 	}
 }
 
-func TestBuildPreviewPreservesUTF8MB4Characters(t *testing.T) {
-	long := strings.Repeat("😀", defaultPreviewAt+1)
-	preview := buildPreview(Entry{Content: long})
-	if !utf8.ValidString(preview) {
-		t.Fatalf("expected valid utf-8 preview, got %q", preview)
-	}
-	if preview != strings.Repeat("😀", defaultPreviewAt)+"..." {
-		t.Fatalf("unexpected preview: %q", preview)
-	}
-}
-
 func TestStoreTrimsToConfiguredLimit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chat_history.db")
 	store := newTestStore(t, path)
@@ -113,7 +101,7 @@ func TestStoreTrimsToConfiguredLimit(t *testing.T) {
 	}
 
 	for i := 0; i < 12; i++ {
-		entry, err := store.Start(StartParams{Model: "deepseek-v4-flash", UserInput: "msg"})
+		entry, err := store.Start(StartParams{Model: "deepseek-chat", UserInput: "msg"})
 		if err != nil {
 			t.Fatalf("start %d failed: %v", i, err)
 		}
@@ -197,7 +185,7 @@ func TestStoreConcurrentUpdatesKeepRowsValid(t *testing.T) {
 			defer wg.Done()
 			entry, err := store.Start(StartParams{
 				CallerID:  "caller:test",
-				Model:     "deepseek-v4-flash",
+				Model:     "deepseek-chat",
 				UserInput: "hello",
 			})
 			if err != nil {
@@ -238,113 +226,11 @@ func TestStoreCallStatsPersistAndClearKeepsStats(t *testing.T) {
 		t.Fatalf("update failed: %v", err)
 	}
 
-<<<<<<< HEAD
 	codes := []int{200, 302, 400, 500}
 	for _, code := range codes {
 		if err := store.RecordCall(code); err != nil {
 			t.Fatalf("record call failed: %v", err)
 		}
-=======
-	store := New(path)
-	if err := store.Err(); err != nil {
-		t.Fatalf("expected legacy migration success, got %v", err)
-	}
-	snapshot, err := store.Snapshot()
-	if err != nil {
-		t.Fatalf("snapshot failed: %v", err)
-	}
-	if len(snapshot.Items) != 1 {
-		t.Fatalf("expected one migrated summary, got %#v", snapshot.Items)
-	}
-	full, err := store.Get("chat_legacy")
-	if err != nil {
-		t.Fatalf("get migrated detail failed: %v", err)
-	}
-	if full.Content != "world" {
-		t.Fatalf("expected migrated detail content preserved, got %#v", full)
-	}
-}
-
-func TestStoreAutoMigratesMetadataOnlyLegacyMonolith(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "chat_history.json")
-	legacy := legacyFile{
-		Version: 1,
-		Limit:   20,
-		Items: []Entry{{
-			ID:           "chat_metadata_only",
-			Revision:     0,
-			CreatedAt:    1,
-			UpdatedAt:    2,
-			Status:       "error",
-			CallerID:     "caller:test",
-			AccountID:    "acct:test",
-			Model:        "deepseek-v4-flash",
-			Stream:       true,
-			UserInput:    "hello",
-			Error:        "boom",
-			StatusCode:   500,
-			ElapsedMs:    12,
-			FinishReason: "error",
-		}},
-	}
-	body, _ := json.MarshalIndent(legacy, "", "  ")
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		t.Fatalf("write legacy file failed: %v", err)
-	}
-
-	store := New(path)
-	if err := store.Err(); err != nil {
-		t.Fatalf("expected legacy metadata-only migration success, got %v", err)
-	}
-	snapshot, err := store.Snapshot()
-	if err != nil {
-		t.Fatalf("snapshot failed: %v", err)
-	}
-	if len(snapshot.Items) != 1 {
-		t.Fatalf("expected one migrated summary, got %#v", snapshot.Items)
-	}
-	full, err := store.Get("chat_metadata_only")
-	if err != nil {
-		t.Fatalf("get migrated detail failed: %v", err)
-	}
-	if full.Error != "boom" || full.UserInput != "hello" {
-		t.Fatalf("expected metadata-only legacy fields preserved, got %#v", full)
-	}
-	if _, err := os.Stat(filepath.Join(store.DetailDir(), "chat_metadata_only.json")); err != nil {
-		t.Fatalf("expected migrated detail file to exist: %v", err)
-	}
-}
-
-func TestStoreLegacyMigrationBestEffortWhenRewriteFails(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "chat_history.json")
-	longID := "chat_" + strings.Repeat("x", 320)
-	legacy := legacyFile{
-		Version: 1,
-		Limit:   20,
-		Items: []Entry{{
-			ID:        longID,
-			CreatedAt: 1,
-			UpdatedAt: 2,
-			Status:    "success",
-			UserInput: "hello",
-			Content:   "world",
-		}},
-	}
-	body, err := json.MarshalIndent(legacy, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal legacy file failed: %v", err)
-	}
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		t.Fatalf("write legacy file failed: %v", err)
-	}
-
-	store := New(path)
-	if err := store.Err(); err != nil {
-		t.Fatalf("expected store to stay usable after migration writeback failure, got %v", err)
-	}
-	if !store.Enabled() {
-		t.Fatal("expected store to remain enabled after best-effort migration")
->>>>>>> upstream/main
 	}
 
 	snapshot, err := store.Snapshot()

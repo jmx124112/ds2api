@@ -23,13 +23,15 @@ const (
 )
 
 type Store struct {
-	mu      sync.RWMutex
-	cfg     Config
-	path    string
-	db      *sql.DB
-	keyMap  map[string]struct{} // O(1) API key lookup index
-	accMap  map[string]int      // O(1) account lookup: identifier -> slice index
-	accTest map[string]string   // runtime-only account test status cache
+	mu       sync.RWMutex
+	cfg      Config
+	path     string
+	db       *sql.DB
+	fromEnv  bool
+	jsonFile bool
+	keyMap   map[string]struct{} // O(1) API key lookup index
+	accMap   map[string]int      // O(1) account lookup: identifier -> slice index
+	accTest  map[string]string   // runtime-only account test status cache
 }
 
 func LoadStore() *Store {
@@ -54,10 +56,92 @@ func LoadStoreWithError() (*Store, error) {
 }
 
 func loadStore() (*Store, error) {
-	dbPath := ConfigPath()
-	db, err := openConfigSQLite(dbPath)
+	path := ConfigPath()
+	if rawCfg := strings.TrimSpace(os.Getenv("DS2API_CONFIG_JSON")); rawCfg != "" {
+		if envWritebackEnabled() && !IsVercel() {
+			if persisted, exists, persistedErr := loadExistingFileBackedStore(path); persistedErr == nil && exists {
+				return persisted, nil
+			} else if persistedErr != nil {
+				Logger.Warn("[config] persisted config fallback unavailable", "error", persistedErr)
+			}
+		}
+
+		cfg, err := parseConfigString(rawCfg)
+		cfg.NormalizeCredentials()
+		cfg.ClearAccountTokens()
+		cfg.DropInvalidAccounts()
+		if err != nil {
+			if envWritebackEnabled() && !IsVercel() {
+				if fallback, exists, fallbackErr := loadExistingFileBackedStore(path); fallbackErr == nil && exists {
+					return fallback, nil
+				} else if fallbackErr != nil {
+					Logger.Warn("[config] persisted config fallback unavailable", "error", fallbackErr)
+				}
+			}
+			return &Store{cfg: cfg.Clone(), path: path, fromEnv: true}, err
+		}
+		if validateErr := ValidateConfig(cfg); validateErr != nil {
+			return &Store{cfg: cfg.Clone(), path: path, fromEnv: true}, validateErr
+		}
+		if envWritebackEnabled() && !IsVercel() {
+			store, err := newFileBackedStore(path, cfg)
+			if err == nil {
+				return store, nil
+			}
+			Logger.Warn("[config] env writeback bootstrap failed", "error", err)
+		}
+		return &Store{cfg: cfg.Clone(), path: path, fromEnv: true}, nil
+	}
+
+	if IsVercel() {
+		if persisted, exists, persistedErr := loadExistingFileBackedStore(path); persistedErr == nil && exists {
+			return persisted, nil
+		} else if persistedErr != nil {
+			Logger.Warn("[config] vercel persisted config unavailable; using memory config", "error", persistedErr)
+		}
+		return &Store{cfg: Config{}, path: path, fromEnv: true}, nil
+	}
+
+	return loadFileBackedStore(path)
+}
+
+func loadExistingFileBackedStore(path string) (*Store, bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, false, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, true, err
+	}
+	store, err := loadFileBackedStore(path)
+	return store, true, err
+}
+
+func loadFileBackedStore(path string) (*Store, error) {
+	if shouldUseJSONConfig(path) {
+		cfg, err := loadConfigFromJSONFile(path)
+		if err != nil {
+			if shouldBootstrapMissingConfigFile(err) {
+				Logger.Warn("[config] config file missing; starting with empty file-backed config", "path", path)
+				cfg = Config{}
+				err = nil
+			} else {
+				return &Store{cfg: Config{}, path: path, jsonFile: true}, err
+			}
+		}
+		cfg.NormalizeCredentials()
+		cfg.DropInvalidAccounts()
+		if validateErr := ValidateConfig(cfg); validateErr != nil {
+			err = errors.Join(err, validateErr)
+		}
+		return &Store{cfg: cfg.Clone(), path: path, jsonFile: true}, err
+	}
+
+	db, err := openConfigSQLite(path)
 	if err != nil {
-		return &Store{cfg: Config{}, path: dbPath}, err
+		return &Store{cfg: Config{}, path: path}, err
 	}
 	cfg, err := loadConfigFromSQLite(db)
 	cfg.NormalizeCredentials()
@@ -67,7 +151,7 @@ func loadStore() (*Store, error) {
 	}
 	store := &Store{
 		cfg:  cfg.Clone(),
-		path: dbPath,
+		path: path,
 		db:   db,
 	}
 	if saveErr := store.saveLocked(); saveErr != nil {
@@ -76,68 +160,67 @@ func loadStore() (*Store, error) {
 	return store, err
 }
 
+func newFileBackedStore(path string, cfg Config) (*Store, error) {
+	if shouldUseJSONConfig(path) {
+		store := &Store{cfg: cfg.Clone(), path: path, jsonFile: true}
+		if err := store.saveLocked(); err != nil {
+			return store, err
+		}
+		return store, nil
+	}
+
+	db, err := openConfigSQLite(path)
+	if err != nil {
+		return &Store{cfg: Config{}, path: path}, err
+	}
+	store := &Store{cfg: cfg.Clone(), path: path, db: db}
+	if err := store.saveLocked(); err != nil {
+		return store, err
+	}
+	return store, nil
+}
+
 func loadConfig() (Config, bool, error) {
-<<<<<<< HEAD
 	store, err := loadStore()
 	if store == nil {
-=======
-	rawCfg := strings.TrimSpace(os.Getenv("DS2API_CONFIG_JSON"))
-	if rawCfg != "" {
-		cfg, err := parseConfigString(rawCfg)
-		if err != nil {
-			if !IsVercel() && envWritebackEnabled() {
-				if fileCfg, fileErr := loadConfigFromFile(ConfigPath()); fileErr == nil {
-					return fileCfg, false, nil
-				}
-			}
-			return cfg, true, err
-		}
-		cfg.ClearAccountTokens()
-		cfg.DropInvalidAccounts()
-		if IsVercel() || !envWritebackEnabled() {
-			return cfg, true, err
-		}
-		content, fileErr := os.ReadFile(ConfigPath())
-		if fileErr == nil {
-			var fileCfg Config
-			if unmarshalErr := json.Unmarshal(content, &fileCfg); unmarshalErr == nil {
-				fileCfg.DropInvalidAccounts()
-				return fileCfg, false, err
-			}
-		}
-		if errors.Is(fileErr, os.ErrNotExist) {
-			if validateErr := ValidateConfig(cfg); validateErr != nil {
-				return cfg, true, validateErr
-			}
-			if writeErr := writeConfigFile(ConfigPath(), cfg.Clone()); writeErr == nil {
-				return cfg, false, err
-			} else {
-				Logger.Warn("[config] env writeback bootstrap failed", "error", writeErr)
-			}
-		}
-		return cfg, true, err
-	}
-	cfg, err := loadConfigFromFile(ConfigPath())
-	if err != nil {
-		if shouldTryLegacyContainerConfigPath() {
-			legacyPath := legacyContainerConfigPath()
-			if legacyCfg, legacyErr := loadConfigFromFile(legacyPath); legacyErr == nil {
-				Logger.Info("[config] loaded legacy container config path", "path", legacyPath)
-				return legacyCfg, false, nil
-			}
-		}
-		if IsVercel() {
-			// Vercel may start without writable/present config; keep in-memory bootstrap config.
-			return Config{}, true, nil
-		}
->>>>>>> upstream/main
 		return Config{}, false, err
 	}
 	cfg := store.Snapshot()
 	if closeErr := store.Close(); closeErr != nil {
 		err = errors.Join(err, closeErr)
 	}
-	return cfg, false, err
+	return cfg, store.fromEnv, err
+}
+
+func shouldBootstrapMissingConfigFile(err error) bool {
+	return errors.Is(err, os.ErrNotExist) && strings.TrimSpace(os.Getenv("DS2API_CONFIG_PATH")) != ""
+}
+
+func shouldUseJSONConfig(path string) bool {
+	return strings.EqualFold(filepath.Ext(strings.TrimSpace(path)), ".json")
+}
+
+func loadConfigFromJSONFile(path string) (Config, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		return Config{}, err
+	}
+	cfg.NormalizeCredentials()
+	cfg.DropInvalidAccounts()
+	if strings.Contains(string(content), "\"test_status\"") && !IsVercel() {
+		persistCfg := cfg.Clone()
+		persistCfg.ClearAccountTokens()
+		if b, marshalErr := json.MarshalIndent(persistCfg, "", "  "); marshalErr != nil {
+			Logger.Warn("[config] sanitize legacy account test status failed", "error", marshalErr)
+		} else if writeErr := writeConfigBytes(path, b); writeErr != nil {
+			Logger.Warn("[config] sanitize legacy account test status failed", "error", writeErr)
+		}
+	}
+	return cfg, nil
 }
 
 func openConfigSQLite(path string) (*sql.DB, error) {
@@ -347,6 +430,26 @@ func (s *Store) Save() error {
 }
 
 func (s *Store) saveLocked() error {
+	if s == nil {
+		return errors.New("config store is nil")
+	}
+	if s.fromEnv && (IsVercel() || !envWritebackEnabled()) {
+		Logger.Info("[save_config] source from env, skip write")
+		return nil
+	}
+	if s.jsonFile {
+		persistCfg := s.cfg.Clone()
+		persistCfg.ClearAccountTokens()
+		b, err := json.MarshalIndent(persistCfg, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := writeConfigBytes(s.path, b); err != nil {
+			return err
+		}
+		s.fromEnv = false
+		return nil
+	}
 	if s == nil || s.db == nil {
 		return errors.New("config sqlite is not initialized")
 	}
@@ -367,6 +470,7 @@ func (s *Store) saveLocked() error {
 	); err != nil {
 		return fmt.Errorf("write config sqlite row: %w", err)
 	}
+	s.fromEnv = false
 	return nil
 }
 

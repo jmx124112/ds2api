@@ -13,26 +13,9 @@ func ConvertClaudeToDeepSeek(claudeReq map[string]any, aliasProvider config.Mode
 		model = defaultClaudeModel
 	}
 
-<<<<<<< HEAD
-	mapping := map[string]string{}
-	if mappingProvider != nil {
-		mapping = mappingProvider.ClaudeMapping()
-	}
-	dsModel := mapping["fast"]
-	if dsModel == "" {
-		dsModel = "deepseek-v4-flash"
-	}
-
-	modelLower := strings.ToLower(model)
-	if strings.Contains(modelLower, "opus") || strings.Contains(modelLower, "reasoner") || strings.Contains(modelLower, "slow") {
-		if slow := mapping["slow"]; slow != "" {
-			dsModel = slow
-		}
-=======
 	dsModel, ok := config.ResolveModel(aliasProvider, model)
 	if !ok || strings.TrimSpace(dsModel) == "" {
 		dsModel = "deepseek-v4-flash"
->>>>>>> upstream/main
 	}
 
 	convertedMessages := make([]any, 0, len(messages)+1)

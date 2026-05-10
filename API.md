@@ -18,6 +18,7 @@
 - [OpenAI 兼容接口](#openai-兼容接口)
 - [Claude 兼容接口](#claude-兼容接口)
 - [Gemini 兼容接口](#gemini-兼容接口)
+- [Ollama 兼容接口](#ollama-兼容接口)
 - [Admin 接口](#admin-接口)
 - [错误响应格式](#错误响应格式)
 - [cURL 示例](#curl-示例)
@@ -31,14 +32,18 @@
 | Base URL | `http://localhost:5001` 或你的部署域名 |
 | 默认 Content-Type | `application/json` |
 | 健康检查 | `GET /healthz`、`GET /readyz` |
-| CORS | 已启用（统一覆盖 `/v1/*`、`/anthropic/*`、`/v1beta/models/*`、`/admin/*`；浏览器有 `Origin` 时回显该 Origin，否则为 `*`；默认允许 `Content-Type`, `Authorization`, `X-API-Key`, `X-Ds2-Target-Account`, `X-Ds2-Source`, `X-Vercel-Protection-Bypass`, `X-Goog-Api-Key`, `Anthropic-Version`, `Anthropic-Beta`，并会放行预检里声明的第三方请求头，如 `x-stainless-*`；Vercel 上 `/v1/chat/completions` 的 Node Runtime 也对齐相同行为；内部专用头 `X-Ds2-Internal-Token` 仍被拦截） |
+| CORS | 已启用（统一覆盖 `/v1/*`、`/anthropic/*`、`/v1beta/models/*`、`/api/*`、`/admin/*`；浏览器有 `Origin` 时回显该 Origin，否则为 `*`；默认允许 `Content-Type`, `Authorization`, `X-API-Key`, `X-Ds2-Target-Account`, `X-Ds2-Source`, `X-Vercel-Protection-Bypass`, `X-Goog-Api-Key`, `Anthropic-Version`, `Anthropic-Beta`，并会放行预检里声明的第三方请求头，如 `x-stainless-*`；Vercel 上 `/v1/chat/completions` 的 Node Runtime 也对齐相同行为；内部专用头 `X-Ds2-Internal-Token` 仍被拦截） |
+
+- 所有 JSON 请求体都必须是合法 UTF-8；非法字节序列会在入站阶段被拒绝为 `400 invalid json`。
 
 ### 3.0 接口适配层说明
 
 - OpenAI / Claude / Gemini 三套协议已统一挂在同一 `chi` 路由树上，由 `internal/server/router.go` 负责装配。
 - 适配器层职责收敛为：**请求归一化 → DeepSeek 调用 → 协议形态渲染**，减少历史版本中“同能力多处实现”的分叉。
-- Tool Calling 的解析策略在 Go 与 Node Runtime 间保持一致：推荐模型输出 DSML 外壳 `<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`；兼容层也接受 DSML wrapper 别名 `<dsml|tool_calls>`、`<|tool_calls>`、`<｜tool_calls>`、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>`），以及旧式 canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`。实现上采用窄容错结构扫描：只有 `tool_calls` wrapper 或可修复的缺失 opening wrapper 会进入工具路径，裸 `<invoke>` 不计为已支持语法；流式场景继续执行防泄漏筛分。若参数体本身是合法 JSON 字面量（如 `123`、`true`、`null`、数组或对象），会按结构化值输出，不再一律当作字符串；若 CDATA 偶发漏闭合，则会在最终 parse / flush 恢复阶段做窄修复，尽量保住已完整包裹的外层工具调用。
+- Tool Calling 的解析策略在 Go 与 Node Runtime 间保持一致：推荐模型输出半角管道符 DSML 外壳 `<|DSML|tool_calls>` → `<|DSML|invoke name="...">` → `<|DSML|parameter name="...">`；兼容层也接受 DSML wrapper 别名 `<dsml|tool_calls>`、`<|tool_calls>`、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>`）、控制分隔符漂移（如 `<DSML␂tool_calls>` / 原始 STX `\x02`）、CJK 尖括号、全角感叹号、顿号、PascalCase 本地名、弯引号属性值与属性尾部分隔符漂移（如 `<DSM|parameter name="command"|>...〈/DSM|parameter〉` / `<！DSML！invoke name=“Bash”>` / `<、DSML、tool_calls>` / `<DSmartToolCalls>` / `<DSMLtool_calls※>`）、任意协议前缀壳（如 `<proto💥tool_calls>`），以及旧式 canonical XML `<tool_calls>` → `<invoke name="...">` → `<parameter name="...">`。实现上采用结构扫描：只要固定本地标签名是 `tool_calls` / `invoke` / `parameter`，标签名前或标签名后的非结构性分隔符会在解析入口归一化；CDATA 开头也会容错 `<！[CDATA[` / `<、[CDATA[` 这类分隔符漂移；只有 `tool_calls` wrapper 或可修复的缺失 opening wrapper 会进入工具路径，裸 `<invoke>` 不计为已支持语法；流式场景继续执行防泄漏筛分。若参数体本身是合法 JSON 字面量（如 `123`、`true`、`null`、数组或对象），会按结构化值输出，不再一律当作字符串；显式空字符串和纯空白参数会结构化保留为空字符串，是否拒绝缺参由工具执行侧决定；完整但 malformed 的 wrapper 会作为普通文本释放，不会吞掉或伪造成工具调用；若 CDATA 偶发漏闭合，则会在最终 parse / flush 恢复阶段做窄修复，尽量保住已完整包裹的外层工具调用。
 - `Admin API` 将配置与运行时策略分开：`/admin/config*` 管静态配置，`/admin/settings*` 管运行时行为。
+- 当上游返回 thinking-only 响应（模型输出了推理链但无可见文本）时，Go 主路径与 Vercel Node 流式路径都会先自动重试一次：以多轮对话 follow-up 方式追加 prompt 后缀 `"Previous reply had no visible output. Please regenerate the visible final answer or tool call now."` 并设置 `parent_message_id` 在同一 DeepSeek session 内让模型重新输出；同账号重试最大 1 次。若同账号重试后仍即将返回 `429 upstream_empty_output`，托管账号模式会在返回 429 前自动切换到下一个可用账号，新建 session，用原始 payload 再 fresh retry 一次。
+- 引用标记处理边界：流式输出默认隐藏 `[citation:N]` / `[reference:N]` 这类上游内部占位符；非流式输出默认把 DeepSeek 搜索引用标记转换为 Markdown 引用链接。
 
 ---
 
@@ -81,7 +86,7 @@ Vercel 一键部署可先只填 `DS2API_ADMIN_KEY`，部署后在 `/admin` 导�
 - token 在 `config.keys` 中 → **托管账号模式**，自动轮询选择账号
 - token 不在 `config.keys` 中 → **直通 token 模式**，直接作为 DeepSeek token 使用
 
-**可选请求头**：`X-Ds2-Target-Account: <email_or_mobile>` — 指定使用某个托管账号。
+**可选请求头**：`X-Ds2-Target-Account: <email_or_mobile>` — 指定使用某个托管账号；如果目标账号不存在，或管理账号队列已耗尽，相关业务请求会返回 `429`，当前不会附带 `Retry-After` 头。若账号存在但登录/刷新失败，则返回对应的 `401` 或上游错误。未指定目标账号时，托管账号模式的 completion 空输出 429 会先尝试切到另一个可用账号 fresh retry 一次；指定目标账号或无其他可用账号时不会切号。
 Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=` 作为凭据来源。
 
 ### Admin 接口（`/admin/*`）
@@ -109,6 +114,7 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 | GET | `/v1/responses/{response_id}` | 业务 | 查询已生成 response（内存 TTL） |
 | POST | `/v1/embeddings` | 业务 | OpenAI Embeddings 接口 |
 | POST | `/v1/files` | 业务 | OpenAI Files 上传（multipart/form-data） |
+| GET | `/v1/files/{file_id}` | 业务 | 查询已上传文件状态 |
 | GET | `/anthropic/v1/models` | 无 | Claude 模型列表 |
 | POST | `/anthropic/v1/messages` | 业务 | Claude 消息接口 |
 | POST | `/anthropic/v1/messages/count_tokens` | 业务 | Claude token 计数 |
@@ -120,6 +126,9 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 | POST | `/v1beta/models/{model}:streamGenerateContent` | 业务 | Gemini 流式 |
 | POST | `/v1/models/{model}:generateContent` | 业务 | Gemini 非流式兼容路径 |
 | POST | `/v1/models/{model}:streamGenerateContent` | 业务 | Gemini 流式兼容路径 |
+| GET | `/api/version` | 无 | Ollama 版本接口 |
+| GET | `/api/tags` | 无 | Ollama 模型列表 |
+| POST | `/api/show` | 无 | Ollama 单模型能力查询（返回 `id` 与 `capabilities`） |
 | POST | `/admin/login` | 无 | 管理登录 |
 | GET | `/admin/verify` | JWT | 校验管理 JWT |
 | GET | `/admin/vercel/config` | Admin | 读取 Vercel 预配置 |
@@ -164,6 +173,10 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 | DELETE | `/admin/chat-history/{id}` | Admin | 删除单条服务器端对话记录 |
 | PUT | `/admin/chat-history/settings` | Admin | 更新对话记录保留条数 |
 | GET | `/admin/version` | Admin | 查询当前版本与最新 Release |
+
+OpenAI `/v1/*` 仍是规范路径。对于只配置 DS2API 根地址的客户端，同一套 OpenAI handler 也通过根路径快捷路由暴露：`/models`、`/models/{id}`、`/chat/completions`、`/responses`、`/responses/{response_id}`、`/embeddings`、`/files`、`/files/{file_id}`。
+
+服务器端记录本质上是 DeepSeek 上游响应归档：OpenAI Chat、OpenAI Responses、Claude Messages、Gemini GenerateContent 等直连 DeepSeek 的生成接口，在收到上游响应后会于各协议回译/裁剪前写入记录；列表按请求创建时间倒序展示，流式请求会在生成过程中持续刷新状态与详情。WebUI「API 测试」发出的请求也会进入该记录。
 
 ---
 
@@ -218,16 +231,15 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 1. 先匹配 DeepSeek 原生模型。
 2. 再匹配 `model_aliases` 精确映射。
 3. 如果请求名以 `-nothinking` 结尾，则在最终解析出的规范模型上追加对应的无思考变体。
-4. 未命中时按模型家族规则回退（如 `o*`、`gpt-*`、`claude-*`）。
-5. 仍未命中则返回 `invalid_request_error`。
+4. 仍未命中则返回 `invalid_request_error`。当前不会按未知模型家族做启发式兜底；需要新增兼容名时请通过 `model_aliases` 明确配置。
 
 当前内置默认 alias 来自 `internal/config/models.go`，`config.model_aliases` 会在运行时覆盖或补充同名映射。节选：
 
 - OpenAI / Codex：`gpt-4o`、`gpt-4.1`、`gpt-5`、`gpt-5.5`、`gpt-5-codex`、`gpt-5.3-codex`、`codex-mini-latest`
 - OpenAI reasoning：`o1`、`o3`、`o3-deep-research`、`o4-mini`
 - Claude：`claude-opus-4-6`、`claude-sonnet-4-6`、`claude-haiku-4-5`、`claude-3-5-sonnet-latest`
-- Gemini：`gemini-2.5-pro`、`gemini-2.5-flash`、`gemini-pro-vision`
-- 其他兼容族：`llama-*`、`qwen-*`、`mistral-*`、`command-*` 会按家族启发式回退
+- Gemini：`gemini-2.5-pro`、`gemini-2.5-flash`、`gemini-3.1-pro`、`gemini-3-pro`、`gemini-3-flash`、`gemini-3.1-flash-lite`、`gemini-pro-vision`
+- 其他内置精确 alias：`llama-3.1-70b-instruct`、`qwen-max`
 
 上述 alias 若在请求名后追加 `-nothinking` 后缀，也会映射到对应的强制关闭 thinking 版本。
 当前视觉能力仅对应 `deepseek-v4-vision` / `deepseek-v4-vision-nothinking`，不会解析出独立的 `vision-search` 变体。
@@ -235,6 +247,8 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 退役历史模型（如 `claude-1.*`、`claude-2.*`、`claude-instant-*`、`gpt-3.5*`）会被显式拒绝。
 
 ### `POST /v1/chat/completions`
+
+> 路径说明：除规范路径 `/v1/chat/completions` 外，也支持根路径快捷别名 `/chat/completions`。在 Vercel Runtime 上，`vercel.json` 仅把规范路径 `/v1/chat/completions` 重写到 Node 流式桥接；根路径快捷别名仍走 Go 主链路。因此 Vercel 上需要实时流式时请使用 `/v1/chat/completions`。
 
 **请求头**：
 
@@ -247,7 +261,7 @@ Content-Type: application/json
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `model` | string | ✅ | 支持 DeepSeek 原生模型 + 常见 alias（如 `gpt-5.5`、`gpt-5.4-mini`、`gpt-5.3-codex`、`o3`、`claude-opus-4-6`、`claude-sonnet-4-6`、`gemini-2.5-pro`、`gemini-2.5-flash` 等）；若模型名带 `-nothinking` 后缀，则强制关闭 thinking / reasoning |
+| `model` | string | ✅ | 支持 DeepSeek 原生模型 + 常见 alias（如 `gpt-5.5`、`gpt-5.4-mini`、`gpt-5.3-codex`、`o3`、`claude-opus-4-6`、`claude-sonnet-4-6`、`gemini-2.5-pro`、`gemini-3.1-pro`、`gemini-3-flash` 等）；若模型名带 `-nothinking` 后缀，则强制关闭 thinking / reasoning |
 | `messages` | array | ✅ | OpenAI 风格消息数组 |
 | `stream` | boolean | ❌ | 默认 `false` |
 | `tools` | array | ❌ | Function Calling 定义 |
@@ -305,7 +319,7 @@ data: [DONE]
 - 开启 thinking 时会输出 `delta.reasoning_content`
 - 普通文本输出 `delta.content`
 - 最后一段包含 `finish_reason` 和 `usage`
-- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算
+- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算。失败/中断型结束（例如 `response.failed`）可能不会携带 `usage`
 
 #### Tool Calls
 
@@ -343,9 +357,10 @@ data: [DONE]
 补充说明：
 
 - **非代码块上下文**下，工具负载即使与普通文本混合，也会按特征识别并产出可执行 tool call（前后普通文本仍可透传）。
-- 解析器当前把 DSML 外壳（`<|DSML|tool_calls>` / `<|DSML|invoke name="...">` / `<|DSML|parameter name="...">`）、DSML wrapper 别名（`<dsml|tool_calls>`、`<|tool_calls>`、`<｜tool_calls>`）、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>` / `<|DSML invoke>` / `<|DSML parameter>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>` / `<DSMLinvoke>` / `<DSMLparameter>`）和旧式 canonical XML 工具块（`<tool_calls>` / `<invoke name="...">` / `<parameter name="...">`）作为可执行调用解析；DSML 会先归一化回 XML，内部仍以 XML 解析语义为准。旧式 `<tools>`、`<tool_call>`、`<tool_name>`、`<param>`、`<function_call>`、`tool_use`、antml 风格与纯 JSON `tool_calls` 片段默认都会按普通文本处理。
+- 解析器当前把推荐半角管道符 DSML 外壳（`<|DSML|tool_calls>` / `<|DSML|invoke name="...">` / `<|DSML|parameter name="...">`）、DSML wrapper 别名（`<dsml|tool_calls>`、`<|tool_calls>`）、常见 DSML 分隔符漏写形态（如 `<|DSML tool_calls>` / `<|DSML invoke>` / `<|DSML parameter>`）、`DSML` 与工具标签名黏连的常见 typo（如 `<DSMLtool_calls>` / `<DSMLinvoke>` / `<DSMLparameter>`）、控制分隔符漂移（如 `<DSML␂tool_calls>` / 原始 STX `\x02`）、CJK 尖括号、全角感叹号、顿号、PascalCase 本地名、弯引号属性值与属性尾部分隔符漂移（如 `<DSM|parameter name="command"|>...〈/DSM|parameter〉` / `<！DSML！invoke name=“Bash”>` / `<、DSML、tool_calls>` / `<DSmartToolCalls>` / `<DSMLtool_calls※>`）、任意协议前缀壳（如 `<proto💥tool_calls>`）和旧式 canonical XML 工具块（`<tool_calls>` / `<invoke name="...">` / `<parameter name="...">`）作为可执行调用解析；这些非结构性分隔符壳会先归一化回 XML，内部仍以 XML 解析语义为准，CDATA 开头也会容错 `<！[CDATA[` / `<、[CDATA[`。旧式 `<tools>`、`<tool_call>`、`<tool_name>`、`<param>`、`<function_call>`、`tool_use`、antml 风格与纯 JSON `tool_calls` 片段默认都会按普通文本处理；完整但 malformed 的 wrapper 同样会作为普通文本释放。
+- 解析层不会因为参数值为空而丢弃工具调用；显式空字符串或纯空白参数会按空字符串进入结构化 `tool_calls`。Prompt 会要求模型不要主动输出空参数，缺参/空命令的拒绝应由工具执行侧或客户端 schema 校验负责。
 - 当最终可见正文为空但思维链里包含可执行工具调用时，Chat / Responses 会在收尾阶段补发标准 OpenAI `tool_calls` / `function_call` 输出；如果客户端未开启 thinking / reasoning，该思维链只用于检测，不会作为可见正文或 `reasoning_content` 暴露。
-- Markdown fenced code block（例如 ```json ... ```）中的 `tool_calls` 仅视为示例文本，不会被执行。
+- Markdown fenced code block（例如 ```json ... ```）和行内 code span（例如 `` `<tool_calls>...</tool_calls>` ``）中的 `tool_calls` 仅视为示例文本，不会被执行。
 
 ---
 
@@ -422,7 +437,7 @@ data: [DONE]
 | `model` | string | ✅ | 支持原生模型 + alias 自动映射 |
 | `input` | string/array | ✅ | 支持字符串、字符串数组、token 数组 |
 
-> 需配置 `embeddings.provider`。当前支持：`mock` / `deterministic` / `builtin`。未配置或不支持时返回标准错误结构（HTTP 501）。
+> 需配置 `embeddings.provider`。当前支持：`mock` / `deterministic` / `builtin`（三者都走同一套本地确定性实现）。未配置或不支持时返回标准错误结构（HTTP 501）。
 
 ### `POST /v1/files`
 
@@ -436,8 +451,12 @@ data: [DONE]
 约束与行为：
 
 - 请求必须为 `multipart/form-data`，否则返回 `400`。
-- 请求体总大小上限 `100 MiB`（超限返回 `413`）。
+- 请求体总大小上限 **100 MiB**（超限返回 `413`）。
 - 成功返回 OpenAI `file` 对象（`id/object/bytes/filename/purpose/status` 等字段），并附带 `account_id` 便于定位来源账号。
+
+### `GET /v1/files/{file_id}`
+
+需要业务鉴权。查询 DeepSeek 上传文件的当前状态，并返回 OpenAI `file` 对象；未找到匹配文件时返回 `404`。
 
 ---
 
@@ -493,6 +512,13 @@ anthropic-version: 2023-06-01
 | `stream` | boolean | ❌ | 默认 `false` |
 | `system` | string | ❌ | 可选系统提示 |
 | `tools` | array | ❌ | Claude tool 定义 |
+| `thinking` | object | ❌ | Anthropic thinking 配置；会转译为下游 reasoning 控制，`-nothinking` 模型会忽略 |
+| `temperature` | number | ❌ | 透传到下游；若同时提供 `top_p`，以 `temperature` 为准 |
+| `top_p` | number | ❌ | 当未提供 `temperature` 时透传到下游 |
+| `stop_sequences` | array | ❌ | 透传到下游停用序列 |
+| `tool_choice` | string/object | ❌ | 支持 `auto` / `none` / `required` / `{"type":"function","name":"..."}`，并会转译为下游工具选择 |
+
+> 说明：上述 `thinking`、`temperature`、`top_p`、`stop_sequences`、`tool_choice` 都会走兼容层转译；最终是否生效仍取决于当前模型和上游能力。`temperature` 与 `top_p` 同时存在时，`temperature` 优先。
 
 #### 非流式响应
 
@@ -545,7 +571,7 @@ data: {"type":"message_stop"}
 
 **说明**：
 
-- 默认模型会按各 surface 的既有规则输出 thinking / reasoning 相关增量
+- 默认支持 thinking 的模型会输出 `thinking` block / `thinking_delta`；请求显式关闭 thinking 或使用 `-nothinking` 模型时不会输出
 - 带 `-nothinking` 后缀的模型会强制关闭 thinking，即使请求显式传了 `thinking` / `reasoning` / `reasoning_effort` 也不会输出 `thinking_delta`
 - 不会输出 `signature_delta`（上游 DeepSeek 未提供可验证签名）
 - `tools` 场景优先避免泄露原始工具 JSON，不强制发送 `input_json_delta`
@@ -592,6 +618,7 @@ data: {"type":"message_stop"}
 响应为 Gemini 兼容结构，核心字段包括：
 
 - `candidates[].content.parts[].text`
+- `candidates[].content.parts[].thought=true`（thinking 输出）
 - `candidates[].content.parts[].functionCall`（工具调用时）
 - `usageMetadata`（`promptTokenCount` / `candidatesTokenCount` / `totalTokenCount`）
 
@@ -600,11 +627,26 @@ data: {"type":"message_stop"}
 返回 SSE（`text/event-stream`），每个 chunk 为一条 `data: <json>`：
 
 - 常规文本：持续返回增量文本 chunk
+- thinking：持续返回 `parts[].thought=true` 的增量 chunk
 - `tools` 场景：会缓冲并在结束时输出 `functionCall` 结构
 - 结束 chunk：包含 `finishReason: "STOP"` 与 `usageMetadata`
 - token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算
 
 ---
+
+## Ollama 兼容接口
+
+- `POST /api/show` 请求体：`{"model":"<model-id>"}`。
+- 响应字段使用小写 `id`（不是 `ID`），并返回 `capabilities` 数组，便于与 Ollama 风格客户端/严格 schema 对齐。
+
+示例响应：
+
+```json
+{
+  "id": "deepseek-v4-flash",
+  "capabilities": ["tools", "thinking"]
+}
+```
 
 ## Admin 接口
 
@@ -649,11 +691,13 @@ data: {"type":"message_stop"}
 
 ### `GET /admin/vercel/config`
 
-返回 Vercel 预配置状态。
+返回 Vercel 预配置状态。优先读取环境变量，其次回退到已保存的 `vercel` 配置块。
 
 ```json
 {
   "has_token": true,
+  "token_preview": "vc****en",
+  "token_source": "config",
   "project_id": "prj_xxx",
   "team_id": null
 }
@@ -674,6 +718,12 @@ data: {"type":"message_stop"}
   "env_source_present": true,
   "env_writeback_enabled": true,
   "config_path": "/data/config.json",
+  "vercel": {
+    "has_token": true,
+    "token_preview": "vc****en",
+    "project_id": "prj_xxx",
+    "team_id": ""
+  },
   "accounts": [
     {
       "identifier": "user@example.com",
@@ -722,10 +772,10 @@ data: {"type":"message_stop"}
 - `success`
 - `admin`（`has_password_hash`、`jwt_expire_hours`、`jwt_valid_after_unix`、`default_password_warning`）
 - `runtime`（`account_max_inflight`、`account_max_queue`、`global_max_inflight`、`token_refresh_interval_hours`）
-- `compat`（`wide_input_strict_output`、`strip_reference_markers`）
 - `responses` / `embeddings`
 - `auto_delete`（`mode`：`none` / `single` / `all`；旧配置 `sessions=true` 仍按 `all` 处理）
 - `current_input_file`（`enabled` 默认返回 `true`、`min_chars`）
+- `thinking_injection`（`enabled` 默认返回 `true`、`prompt`、`default_prompt`）
 - `model_aliases`
 - `env_backed`、`needs_vercel_sync`
 - `toolcall` 策略已固定为 `feature_match + high`，不再通过 settings 返回或修改
@@ -736,13 +786,12 @@ data: {"type":"message_stop"}
 
 - `admin.jwt_expire_hours`
 - `runtime.account_max_inflight` / `runtime.account_max_queue` / `runtime.global_max_inflight` / `runtime.token_refresh_interval_hours`
-- `compat.wide_input_strict_output` / `compat.strip_reference_markers`
 - `responses.store_ttl_seconds`
 - `embeddings.provider`
 - `auto_delete.mode`
 - `current_input_file.enabled` / `current_input_file.min_chars`
+- `thinking_injection.enabled` / `thinking_injection.prompt`
 - `model_aliases`
-- `history_split` 仅作为旧配置兼容字段保留，不再影响请求处理
 - `toolcall` 策略已固定，不再作为可写入字段
 
 ### `POST /admin/settings/password`
@@ -766,9 +815,9 @@ data: {"type":"message_stop"}
 
 请求可直接传配置对象，或使用 `{"config": {...}, "mode":"merge"}` 包裹格式。
 也支持在查询参数里传 `?mode=merge` / `?mode=replace`。
-`replace` 模式会按完整配置结构替换（保留 Vercel 同步元信息）；`merge` 模式会合并 `keys`、`api_keys`、`accounts`、`model_aliases`，并覆盖 `admin`、`runtime`、`responses`、`embeddings` 中的非空字段。`compat`、`auto_delete`、`current_input_file` 建议通过 `/admin/settings` 或配置文件管理；`history_split` 仅保留为旧配置兼容字段；`toolcall` 相关字段会被忽略。
+`replace` 模式会按完整配置结构替换（保留 Vercel 同步元信息）；`merge` 模式会合并 `keys`、`api_keys`、`accounts`、`model_aliases`，并覆盖 `admin`、`runtime`、`responses`、`embeddings` 中的非空字段。`auto_delete`、`current_input_file` 建议通过 `/admin/settings` 或配置文件管理；`compat` 与 `toolcall` 相关字段会被忽略。
 
-> 注意：`merge` 模式不会更新 `compat`、`auto_delete`、`current_input_file`。
+> 注意：`merge` 模式不会更新 `auto_delete`、`current_input_file`。
 
 ### `GET /admin/config/export`
 
@@ -1090,11 +1139,11 @@ data: {"type":"message_stop"}
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `vercel_token` | ❌ | 空或 `__USE_PRECONFIG__` 则读环境变量 |
-| `project_id` | ❌ | 空则读 `VERCEL_PROJECT_ID` |
-| `team_id` | ❌ | 空则读 `VERCEL_TEAM_ID` |
+| `vercel_token` | ❌ | 空或 `__USE_PRECONFIG__` 则读环境变量，再回退到已保存配置 |
+| `project_id` | ❌ | 空则读 `VERCEL_PROJECT_ID`，再回退到已保存配置 |
+| `team_id` | ❌ | 空则读 `VERCEL_TEAM_ID`，再回退到已保存配置 |
 | `auto_validate` | ❌ | 默认 `true` |
-| `save_credentials` | ❌ | 默认 `true` |
+| `save_credentials` | ❌ | 默认 `true`；保存本次显式填写的 Vercel 凭据，供下次同步复用 |
 
 **成功响应**：
 
@@ -1234,7 +1283,7 @@ Gemini 路由使用 Google 风格错误结构：
 | 状态码 | 说明 |
 | --- | --- |
 | `401` | 鉴权失败（key/token 无效，或 Admin JWT 过期） |
-| `429` | 请求过多（超出并发上限 + 等待队列） |
+| `429` | 请求过多（超出并发上限 + 等待队列，或上游账号 thinking-only 后仍无可见输出；托管账号模式会先尝试一次切号 fresh retry；当前不附带 `Retry-After` 头） |
 | `503` | 模型不可用或上游服务异常 |
 
 ---

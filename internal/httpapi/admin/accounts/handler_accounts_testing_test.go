@@ -167,7 +167,7 @@ func (m *completionPayloadDSMock) GetSessionCountForToken(_ context.Context, _ s
 	return &dsclient.SessionStats{Success: true}, nil
 }
 
-func TestTestAccount_MessageModeUsesExpertModelTypeForProModel(t *testing.T) {
+func TestTestAccount_MessageModeUsesExpertModelTypeForExpertModel(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
 	store := config.LoadStore()
 	ds := &completionPayloadDSMock{}
@@ -190,7 +190,7 @@ func TestTestAccount_MessageModeUsesExpertModelTypeForProModel(t *testing.T) {
 	}
 }
 
-func TestTestAccount_MessageModeUsesDefaultModelTypeForFlashModel(t *testing.T) {
+func TestTestAccount_MessageModeUsesVisionModelTypeForVisionModel(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{"accounts":[{"email":"batch@example.com","password":"pwd","token":"seed-token"}]}`)
 	store := config.LoadStore()
 	ds := &completionPayloadDSMock{}
@@ -200,16 +200,12 @@ func TestTestAccount_MessageModeUsesDefaultModelTypeForFlashModel(t *testing.T) 
 		t.Fatal("expected test account")
 	}
 
-<<<<<<< HEAD:internal/admin/handler_accounts_testing_test.go
-	result := h.testAccount(context.Background(), acc, "deepseek-v4-flash", "hello")
-=======
 	result := h.testAccount(context.Background(), acc, "deepseek-v4-vision", "hello")
->>>>>>> upstream/main:internal/httpapi/admin/accounts/handler_accounts_testing_test.go
 
 	if ok, _ := result["success"].(bool); !ok {
 		t.Fatalf("expected success=true, got %#v", result)
 	}
-	if got := ds.payload["model_type"]; got != "default" {
-		t.Fatalf("expected model_type default, got %#v", got)
+	if got := ds.payload["model_type"]; got != "vision" {
+		t.Fatalf("expected model_type vision, got %#v", got)
 	}
 }

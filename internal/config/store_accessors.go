@@ -1,20 +1,10 @@
-﻿package config
+package config
 
 import (
+	"os"
+	"strconv"
 	"strings"
 )
-
-func (s *Store) ClaudeMapping() map[string]string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if len(s.cfg.ClaudeModelMap) > 0 {
-		return cloneStringMap(s.cfg.ClaudeModelMap)
-	}
-	if len(s.cfg.ClaudeMapping) > 0 {
-		return cloneStringMap(s.cfg.ClaudeMapping)
-	}
-	return map[string]string{"fast": "deepseek-v4-flash", "slow": "deepseek-v4-pro-thinking"}
-}
 
 func (s *Store) ModelAliases() map[string]string {
 	s.mu.RLock()
@@ -29,24 +19,6 @@ func (s *Store) ModelAliases() map[string]string {
 		out[key] = val
 	}
 	return out
-}
-
-func (s *Store) CompatWideInputStrictOutput() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.Compat.WideInputStrictOutput == nil {
-		return true
-	}
-	return *s.cfg.Compat.WideInputStrictOutput
-}
-
-func (s *Store) CompatStripReferenceMarkers() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.Compat.StripReferenceMarkers == nil {
-		return true
-	}
-	return *s.cfg.Compat.StripReferenceMarkers
 }
 
 func (s *Store) ToolcallMode() string {
@@ -98,6 +70,11 @@ func (s *Store) AdminJWTExpireHours() int {
 	if s.cfg.Admin.JWTExpireHours > 0 {
 		return s.cfg.Admin.JWTExpireHours
 	}
+	if raw := strings.TrimSpace(os.Getenv("DS2API_JWT_EXPIRE_HOURS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
 	return 24
 }
 
@@ -113,6 +90,11 @@ func (s *Store) RuntimeAccountMaxInflight() int {
 	if s.cfg.Runtime.AccountMaxInflight > 0 {
 		return s.cfg.Runtime.AccountMaxInflight
 	}
+	if raw := strings.TrimSpace(os.Getenv("DS2API_ACCOUNT_MAX_INFLIGHT")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
 	return 2
 }
 
@@ -121,6 +103,11 @@ func (s *Store) RuntimeAccountMaxQueue(defaultSize int) int {
 	defer s.mu.RUnlock()
 	if s.cfg.Runtime.AccountMaxQueue > 0 {
 		return s.cfg.Runtime.AccountMaxQueue
+	}
+	if raw := strings.TrimSpace(os.Getenv("DS2API_ACCOUNT_MAX_QUEUE")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			return n
+		}
 	}
 	if defaultSize < 0 {
 		return 0
@@ -133,6 +120,11 @@ func (s *Store) RuntimeGlobalMaxInflight(defaultSize int) int {
 	defer s.mu.RUnlock()
 	if s.cfg.Runtime.GlobalMaxInflight > 0 {
 		return s.cfg.Runtime.GlobalMaxInflight
+	}
+	if raw := strings.TrimSpace(os.Getenv("DS2API_GLOBAL_MAX_INFLIGHT")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
 	}
 	if defaultSize < 0 {
 		return 0
@@ -153,24 +145,6 @@ func (s *Store) AutoDeleteSessions() bool {
 	return s.AutoDeleteMode() != "none"
 }
 
-func (s *Store) HistorySplitEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.HistorySplit.Enabled == nil {
-		return true
-	}
-	return *s.cfg.HistorySplit.Enabled
-}
-
-func (s *Store) HistorySplitTriggerAfterTurns() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg.HistorySplit.TriggerAfterTurns == nil || *s.cfg.HistorySplit.TriggerAfterTurns <= 0 {
-		return 1
-	}
-	return *s.cfg.HistorySplit.TriggerAfterTurns
-}
-
 func (s *Store) CurrentInputFileEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -183,9 +157,6 @@ func (s *Store) CurrentInputFileEnabled() bool {
 func (s *Store) CurrentInputFileMinChars() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.cfg.CurrentInputFile.MinChars < 0 {
-		return 0
-	}
 	return s.cfg.CurrentInputFile.MinChars
 }
 

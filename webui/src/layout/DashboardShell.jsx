@@ -19,14 +19,14 @@ import clsx from 'clsx'
 import LanguageToggle from '../components/LanguageToggle'
 import { useI18n } from '../i18n'
 
-<<<<<<< HEAD
 const EMPTY_CALL_STATS = { total_calls: 0, success_calls: 0, failed_calls: 0 }
 
 function formatCallCount(value) {
     const num = Number(value || 0)
     if (!Number.isFinite(num)) return '0'
     return num.toLocaleString()
-=======
+}
+
 const AccountManagerContainer = lazy(() => import('../features/account/AccountManagerContainer'))
 const ApiTesterContainer = lazy(() => import('../features/apiTester/ApiTesterContainer'))
 const ChatHistoryContainer = lazy(() => import('../features/chatHistory/ChatHistoryContainer'))
@@ -44,7 +44,6 @@ function TabLoadingFallback({ label }) {
             </div>
         </div>
     )
->>>>>>> upstream/main
 }
 
 export default function DashboardShell({ token, onLogout, config, fetchConfig, showMessage, message, onForceLogout, isVercel }) {

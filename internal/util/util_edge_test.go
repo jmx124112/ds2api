@@ -162,20 +162,20 @@ func TestMessagesPrepareMergesConsecutiveSameRole(t *testing.T) {
 		{"role": "user", "content": "World"},
 	}
 	got := MessagesPrepare(messages)
-	if !strings.HasPrefix(got, "<｜begin▁of▁sentence｜>") {
+	if !strings.HasPrefix(got, "<|begin▁of▁sentence|>") {
 		t.Fatalf("expected user marker at the start, got %q", got)
 	}
 	if !strings.Contains(got, "Hello") || !strings.Contains(got, "World") {
 		t.Fatalf("expected both messages, got %q", got)
 	}
 	// Should be merged into a single user turn with one marker at the start.
-	count := strings.Count(got, "<｜User｜>")
+	count := strings.Count(got, "<|User|>")
 	if count != 1 {
 		t.Fatalf("expected one User marker for the merged pair, got %d occurrences", count)
 	}
 	// User messages no longer have end_of_sentence markers in the official format.
 	// The merged pair should have zero end_of_sentence markers (user turn only).
-	if count := strings.Count(got, "<｜end▁of▁sentence｜>"); count != 0 {
+	if count := strings.Count(got, "<|end▁of▁sentence|>"); count != 0 {
 		t.Fatalf("expected zero sentence terminators for user-only merge, got %d occurrences", count)
 	}
 }
@@ -186,16 +186,16 @@ func TestMessagesPrepareAssistantMarkers(t *testing.T) {
 		{"role": "assistant", "content": "Hello!"},
 	}
 	got := MessagesPrepare(messages)
-	if !strings.Contains(got, "<｜Assistant｜>") {
+	if !strings.Contains(got, "<|Assistant|>") {
 		t.Fatalf("expected assistant marker, got %q", got)
 	}
-	if !strings.Contains(got, "<｜end▁of▁sentence｜>") {
+	if !strings.Contains(got, "<|end▁of▁sentence|>") {
 		t.Fatalf("expected end of sentence marker, got %q", got)
 	}
-	if strings.Count(got, "<｜end▁of▁sentence｜>") != 1 {
+	if strings.Count(got, "<|end▁of▁sentence|>") != 1 {
 		t.Fatalf("expected one end_of_sentence (assistant only), got %q", got)
 	}
-	if !strings.Contains(got, "<｜Assistant｜>Hello!<｜end▁of▁sentence｜>") {
+	if !strings.Contains(got, "<|Assistant|>Hello!<|end▁of▁sentence|>") {
 		t.Fatalf("expected assistant EOS suffix, got %q", got)
 	}
 	if strings.Contains(got, "<think>") || strings.Contains(got, "</think>") {
@@ -295,7 +295,7 @@ func TestNormalizeContentJSON(t *testing.T) {
 // ─── ConvertClaudeToDeepSeek edge cases ──────────────────────────────
 
 func TestConvertClaudeToDeepSeekDefaultModel(t *testing.T) {
-	store := config.LoadStore()
+	store := loadEmptyConfigStore(t)
 	req := map[string]any{
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
 	}
@@ -306,7 +306,7 @@ func TestConvertClaudeToDeepSeekDefaultModel(t *testing.T) {
 }
 
 func TestConvertClaudeToDeepSeekWithStopSequences(t *testing.T) {
-	store := config.LoadStore()
+	store := loadEmptyConfigStore(t)
 	req := map[string]any{
 		"model":          "claude-sonnet-4-5",
 		"messages":       []any{map[string]any{"role": "user", "content": "Hi"}},
@@ -319,7 +319,7 @@ func TestConvertClaudeToDeepSeekWithStopSequences(t *testing.T) {
 }
 
 func TestConvertClaudeToDeepSeekWithTemperature(t *testing.T) {
-	store := config.LoadStore()
+	store := loadEmptyConfigStore(t)
 	req := map[string]any{
 		"model":       "claude-sonnet-4-5",
 		"messages":    []any{map[string]any{"role": "user", "content": "Hi"}},
@@ -336,7 +336,7 @@ func TestConvertClaudeToDeepSeekWithTemperature(t *testing.T) {
 }
 
 func TestConvertClaudeToDeepSeekNoSystem(t *testing.T) {
-	store := config.LoadStore()
+	store := loadEmptyConfigStore(t)
 	req := map[string]any{
 		"model":    "claude-sonnet-4-5",
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
@@ -348,22 +348,13 @@ func TestConvertClaudeToDeepSeekNoSystem(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-func TestConvertClaudeToDeepSeekOpusUsesSlowMapping(t *testing.T) {
-	t.Setenv("DS2API_CONFIG_JSON", `{"keys":[],"accounts":[],"claude_mapping":{"fast":"deepseek-v4-flash","slow":"deepseek-v4-pro-thinking"}}`)
-=======
 func TestConvertClaudeToDeepSeekOpusUsesGlobalAlias(t *testing.T) {
->>>>>>> upstream/main
-	store := config.LoadStore()
+	store := loadEmptyConfigStore(t)
 	req := map[string]any{
 		"model":    "claude-opus-4-6",
 		"messages": []any{map[string]any{"role": "user", "content": "Hi"}},
 	}
 	out := ConvertClaudeToDeepSeek(req, store)
-<<<<<<< HEAD
-	if out["model"] != "deepseek-v4-pro-thinking" {
-		t.Fatalf("expected opus to use slow mapping, got %q", out["model"])
-=======
 	if out["model"] != "deepseek-v4-pro" {
 		t.Fatalf("expected opus to use global alias, got %q", out["model"])
 	}
@@ -392,6 +383,5 @@ func TestConvertClaudeToDeepSeekUsesExplicitNoThinkingModelAlias(t *testing.T) {
 	out := ConvertClaudeToDeepSeek(req, store)
 	if out["model"] != "deepseek-v4-pro-search-nothinking" {
 		t.Fatalf("expected explicit alias override with nothinking suffix, got %q", out["model"])
->>>>>>> upstream/main
 	}
 }

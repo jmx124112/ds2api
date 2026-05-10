@@ -6,6 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.2.1
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/uuid v1.6.0
+	github.com/hupe1980/go-tiktoken v0.0.10
 	github.com/refraction-networking/utls v1.8.2
 	github.com/router-for-me/CLIProxyAPI/v6 v6.9.14
 	modernc.org/sqlite v1.49.1
@@ -20,6 +21,8 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+require github.com/dlclark/regexp2 v1.11.5 // indirect
 
 require (
 	github.com/klauspost/compress v1.18.5 // indirect

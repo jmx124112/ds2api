@@ -3,6 +3,7 @@ FROM node:24 AS webui-builder
 WORKDIR /app/webui
 COPY webui/package.json webui/package-lock.json ./
 RUN npm ci
+COPY config.example.json /app/config.example.json
 COPY webui ./
 RUN npm run build
 
@@ -28,7 +29,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && groupadd -r ds2api && useradd -r -g ds2api -d /app -s /sbin/nologin ds2api \
-    && mkdir -p /app/data && chown -R ds2api:ds2api /app \
+    && mkdir -p /app/data /data && chown -R ds2api:ds2api /app /data \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=busybox-tools /bin/busybox /usr/local/bin/busybox
 EXPOSE 5001

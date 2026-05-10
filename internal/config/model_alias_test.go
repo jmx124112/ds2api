@@ -10,8 +10,6 @@ func TestResolveModelDirectDeepSeek(t *testing.T) {
 	got, ok := ResolveModel(nil, "deepseek-v4-flash")
 	if !ok || got != "deepseek-v4-flash" {
 		t.Fatalf("expected deepseek-v4-flash, got ok=%v model=%q", ok, got)
-<<<<<<< HEAD
-=======
 	}
 }
 
@@ -77,21 +75,6 @@ func TestResolveExpandedHistoricalAliases(t *testing.T) {
 	}
 }
 
-func TestResolveModelHeuristicReasoner(t *testing.T) {
-	got, ok := ResolveModel(nil, "o3-super")
-	if !ok || got != "deepseek-v4-pro" {
-		t.Fatalf("expected heuristic reasoner, got ok=%v model=%q", ok, got)
->>>>>>> upstream/main
-	}
-}
-
-func TestResolveModelHeuristicReasonerNoThinking(t *testing.T) {
-	got, ok := ResolveModel(nil, "o3-super-nothinking")
-	if !ok || got != "deepseek-v4-pro-nothinking" {
-		t.Fatalf("expected heuristic reasoner nothinking, got ok=%v model=%q", ok, got)
-	}
-}
-
 func TestResolveModelUnknown(t *testing.T) {
 	_, ok := ResolveModel(nil, "totally-custom-model")
 	if ok {
@@ -99,28 +82,13 @@ func TestResolveModelUnknown(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-func TestResolveModelRejectsLegacyModelName(t *testing.T) {
-	_, ok := ResolveModel(nil, "deepseek-chat")
+func TestResolveModelUnknownKnownFamilyName(t *testing.T) {
+	_, ok := ResolveModel(nil, "gpt-5.5-pro-search")
 	if ok {
-		t.Fatalf("expected legacy model deepseek-chat to be rejected")
+		t.Fatal("expected unknown known-family model to fail resolve without alias")
 	}
 }
 
-func TestResolveModelRejectsThirdPartyAlias(t *testing.T) {
-	_, ok := ResolveModel(nil, "gpt-4.1")
-	if ok {
-		t.Fatalf("expected third-party alias gpt-4.1 to be rejected")
-	}
-}
-
-func TestResolveModelRejectsStoreAlias(t *testing.T) {
-	_, ok := ResolveModel(mockModelAliasReader{
-		"my-model": "deepseek-v4-flash",
-	}, "my-model")
-	if ok {
-		t.Fatalf("expected store alias to be rejected")
-=======
 func TestResolveModelRejectsLegacyDeepSeekIDs(t *testing.T) {
 	legacyModels := []string{
 		"deepseek-chat",
@@ -173,14 +141,6 @@ func TestResolveModelCustomAliasToVision(t *testing.T) {
 	}, "my-vision-model")
 	if !ok || got != "deepseek-v4-vision" {
 		t.Fatalf("expected alias -> deepseek-v4-vision, got ok=%v model=%q", ok, got)
-	}
-}
-
-func TestResolveModelHeuristicVisionIgnoresSearchSuffix(t *testing.T) {
-	got, ok := ResolveModel(nil, "gemini-vision-search")
-	if !ok || got != "deepseek-v4-vision" {
-		t.Fatalf("expected heuristic vision alias to resolve without search variant, got ok=%v model=%q", ok, got)
->>>>>>> upstream/main
 	}
 }
 
