@@ -42,9 +42,10 @@
 | Node.js | `20.19+` 或 `22.12+`（CI / Docker 构建使用 Node 24） | 仅在需要本地构建 WebUI 时 |
 | npm | 随 Node.js 提供，建议 10+ | 安装 WebUI 依赖 |
 
-配置来源（任选其一）：
+配置来源（按部署方式选择）：
 
-- **文件方式**：`config.json`（推荐本地/Docker 使用）
+- **文件方式**：`config.json`（推荐本地源码、Release 二进制或 systemd 使用）
+- **SQLite 数据库**：`config.db`（Docker Compose 默认使用）
 - **环境变量方式**：`DS2API_CONFIG_JSON`（推荐 Vercel 使用，支持 JSON 字符串或 Base64 编码，也可以直接写原始 JSON）
 
 统一建议（最优实践）：
@@ -54,9 +55,10 @@ cp config.example.json config.json
 # 编辑 config.json
 ```
 
-建议把 `config.json` 作为唯一配置源：
+建议：
 - 本地运行：直接读 `config.json`
-- Docker / Vercel：从 `config.json` 生成 `DS2API_CONFIG_JSON`（Base64）注入环境变量
+- Docker Compose：默认不需要 `config.json`，配置由管理台保存到 SQLite 数据库
+- Vercel：从 `config.json` 生成 `DS2API_CONFIG_JSON`（Base64）注入环境变量
 
 ---
 
@@ -113,9 +115,8 @@ cp config.example.json config.json
 # 拉取预编译镜像
 docker pull ghcr.io/cjackhwang/ds2api:latest
 
-# 复制环境变量模板和配置文件
+# 复制环境变量模板
 cp .env.example .env
-cp config.example.json config.json
 
 # 编辑 .env（请改成你的强密码），至少设置：
 #   DS2API_ADMIN_KEY=your-admin-key
@@ -130,9 +131,9 @@ docker-compose logs -f
 ```
 
 默认 `docker-compose.yml` 直接使用 `ghcr.io/cjackhwang/ds2api:latest`，并把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
-Compose 模板还会默认设置 `DS2API_CONFIG_PATH=/data/config.json` 并挂载 `./config.json:/data/config.json`，优先避免 `/app` 只读带来的配置持久化问题。
-镜像内会预创建 `/data` 并授权给非 root 的 `ds2api` 用户；如果你使用 bind mount 单文件，请确保宿主机 `config.json` 至少可被容器用户读取/写入，例如 `chmod 644 config.json`，否则 Linux UID/GID 不一致时仍可能出现 `open /data/config.json: permission denied`。
-兼容说明：若未设置 `DS2API_CONFIG_PATH` 且运行目录是 `/app`，新版本会优先使用 `/data/config.json`；当该文件不存在但检测到历史 `/app/config.json` 时，会自动回退读取旧路径，避免升级后“配置丢失”。
+Compose 模板还会默认设置 `DS2API_CONFIG_PATH=/app/data/config.db` 并挂载命名卷 `ds2api_data:/app/data`，优先避免 `/app` 只读和宿主机 bind mount 权限不一致带来的配置持久化问题。
+Compose 默认不再挂载或需要 `config.json`；请在管理台导入或编辑配置，保存后会写入 SQLite 数据库。
+兼容说明：若未设置 `DS2API_CONFIG_PATH` 且运行目录是 `/app`，新版本会优先使用 `/data/config.db` 或 `/app/data/config.db`。
 
 如需固定版本，也可以直接拉取指定 tag：
 
@@ -197,10 +198,10 @@ healthcheck:
 部署要点：
 
 - **端口**：服务默认监听 `5001`，模板会固定设置 `PORT=5001`。
-- **配置持久化**：模板挂载卷 `/data`，并设置 `DS2API_CONFIG_PATH=/data/config.json`；首次空卷启动时会先使用空的文件模式配置，在管理台导入配置后，会写入并持久化到该路径。
+- **配置持久化**：模板挂载卷 `/data`，并设置 `DS2API_CONFIG_PATH=/data/config.db`；首次空卷启动时会先使用空的数据库配置，在管理台导入配置后，会写入并持久化到该路径。
 - **`open /app/config.json: permission denied`**：说明当前实例在尝试把运行时 token 持久化到只读路径（常见于镜像内 `/app`）。  
   处理建议：
-  1. 显式设置可写路径：`DS2API_CONFIG_PATH=/data/config.json`（并挂载持久卷到 `/data`）；  
+  1. 显式设置可写路径：`DS2API_CONFIG_PATH=/data/config.db`（并挂载持久卷到 `/data`）；
   2. 若你使用 `DS2API_CONFIG_JSON` 启动且不需要运行时落盘，可保持环境变量模式（`DS2API_ENV_WRITEBACK` 关闭）；  
   3. 最新版本中，即使持久化失败，登录/会话测试仍会继续，仅提示“token 未持久化（重启后丢失）”。
 - **构建版本号**：Zeabur / 普通 `docker build` 默认不需要传 `BUILD_VERSION`；镜像会优先使用该构建参数，未提供时自动回退到仓库根目录的 `VERSION` 文件。
@@ -221,18 +222,18 @@ healthcheck:
 | --- | --- | --- |
 | `PORT` | `5001` | 服务监听端口，需要和 Zeabur 暴露的 HTTP 端口一致。 |
 | `DS2API_ADMIN_KEY` | 强随机字符串 | 管理台登录密钥，必填。 |
-| `DS2API_CONFIG_PATH` | `/data/config.json` | 配置持久化路径，建议必填。 |
+| `DS2API_CONFIG_PATH` | `/data/config.db` | Zeabur 持久卷中的 SQLite 配置数据库路径。 |
 | `LOG_LEVEL` | `INFO` | 可选，日志级别。 |
 | `DS2API_CONFIG_JSON` | 原始 JSON 或 Base64 JSON | 可选，用于用环境变量初始化配置。 |
-| `DS2API_ENV_WRITEBACK` | `1` | 可选；当设置了 `DS2API_CONFIG_JSON` 且希望首次启动后写入 `/data/config.json` 时再启用。 |
+| `DS2API_ENV_WRITEBACK` | `1` | 可选；当设置了 `DS2API_CONFIG_JSON` 且希望首次启动后写入 `DS2API_CONFIG_PATH` 时再启用。 |
 
 7. 暴露 HTTP 端口 `5001`，健康检查路径可填 `/healthz`。
-8. 部署完成后访问 `/admin`，用 `DS2API_ADMIN_KEY` 登录，然后在管理台导入或编辑配置。首次空卷可以没有 `/data/config.json`，服务会先启动，第一次保存时自动创建该文件。
+8. 部署完成后访问 `/admin`，用 `DS2API_ADMIN_KEY` 登录，然后在管理台导入或编辑配置。首次空卷可以没有 `/data/config.db`，服务会先启动，第一次保存时自动创建该文件。
 
 常见问题：
 
-- **启动日志出现 `open /data/config.json: no such file or directory`**：请确认已经部署包含“首次空卷启动”修复的版本，并重新部署最新代码。
-- **出现 `open /app/config.json: permission denied`**：说明配置路径仍指向镜像内只读目录；设置持久卷 `/data`，并确认 `DS2API_CONFIG_PATH=/data/config.json`。
+- **启动日志出现 `read /data/config.json: is a directory` 或 `open /data/config.json: no such file or directory`**：说明仍在使用旧版单文件挂载配置；删除宿主机上的 `config.json` 目录，更新到新版 Compose，并重新创建容器。
+- **出现 `open /app/config.json: permission denied`**：说明配置路径仍指向镜像内只读目录；设置持久卷 `/data`，并确认 `DS2API_CONFIG_PATH=/data/config.db`。
 - **管理台保存后重启配置丢失**：检查 `/data` 持久卷是否已挂载到当前服务；如果使用了 `DS2API_CONFIG_JSON`，但想让管理台保存落盘，请启用 `DS2API_ENV_WRITEBACK=1`。
 
 参考：Zeabur 官方文档的 [GitHub/Git 集成](https://zeabur.com/docs/en-US/deploy/github)、[Dockerfile 部署](https://zeabur.com/docs/zh-CN/deploy/dockerfile) 与 [Volumes](https://zeabur.com/docs/data-management/volumes)。

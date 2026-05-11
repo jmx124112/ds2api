@@ -18,14 +18,14 @@ spec:
     ## After deployment
     - Admin panel: `/admin`
     - Health check: `/healthz`
-    - Config is persisted at `/data/config.json` (mounted volume)
+    - Config is persisted at `/data/config.db` (mounted volume)
     - `BUILD_VERSION` is optional; when omitted, Docker build falls back to the repo `VERSION` file automatically
 
     ## First-time setup
     1. Open your service URL, then visit `/admin`
     2. Login with `DS2API_ADMIN_KEY` (shown in Zeabur env/instructions)
-    3. Import / edit config in Admin UI (saved to `/data/config.json`)
-    4. On a fresh volume, DS2API starts with an empty config and creates `/data/config.json` on the first save
+    3. Import / edit config in Admin UI (saved to `/data/config.db`)
+    4. On a fresh volume, DS2API starts with an empty config and creates `/data/config.db` on the first save
 
   services:
     - name: ds2api
@@ -52,7 +52,7 @@ spec:
             default: ${PASSWORD}
             expose: true
           DS2API_CONFIG_PATH:
-            default: /data/config.json
+            default: /data/config.db
         instructions:
           - title: Admin panel
             content: Visit `/admin` on your service URL.

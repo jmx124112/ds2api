@@ -42,9 +42,10 @@ Recommended order when choosing a deployment method:
 | Node.js | `20.19+` or `22.12+` (CI / Docker builds use Node 24) | Only needed to build WebUI locally |
 | npm | Bundled with Node.js; 10+ recommended | Install WebUI dependencies |
 
-Config source (choose one):
+Config source (choose by deployment mode):
 
-- **File**: `config.json` (recommended for local/Docker)
+- **File**: `config.json` (recommended for local source runs, release binaries, or systemd)
+- **SQLite database**: `config.db` (Docker Compose default)
 - **Environment variable**: `DS2API_CONFIG_JSON` (recommended for Vercel; supports raw JSON or Base64)
 
 Unified recommendation (best practice):
@@ -54,9 +55,10 @@ cp config.example.json config.json
 # Edit config.json
 ```
 
-Use `config.json` as the single source of truth:
+Recommendation:
 - Local run: read `config.json` directly
-- Docker / Vercel: generate `DS2API_CONFIG_JSON` (Base64) from `config.json` and inject it
+- Docker Compose: no `config.json` is needed by default; Admin UI saves config to the SQLite database
+- Vercel: generate `DS2API_CONFIG_JSON` (Base64) from `config.json` and inject it
 
 ---
 
@@ -113,9 +115,8 @@ cp config.example.json config.json
 # Pull prebuilt image
 docker pull ghcr.io/cjackhwang/ds2api:latest
 
-# Copy env template and config file
+# Copy env template
 cp .env.example .env
-cp config.example.json config.json
 
 # Edit .env and set at least:
 #   DS2API_ADMIN_KEY=your-admin-key
@@ -130,9 +131,9 @@ docker-compose logs -f
 ```
 
 The default `docker-compose.yml` directly uses `ghcr.io/cjackhwang/ds2api:latest` and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
-The compose template also defaults to `DS2API_CONFIG_PATH=/data/config.json` with `./config.json:/data/config.json` mounted, so deployments avoid read-only `/app` persistence issues by default.
-The image pre-creates `/data` and grants it to the non-root `ds2api` user. If you bind-mount a single host file, make sure `config.json` is readable/writable by the container user, for example with `chmod 644 config.json`; otherwise Linux UID/GID mismatches can still cause `open /data/config.json: permission denied`.
-Compatibility note: when `DS2API_CONFIG_PATH` is unset and runtime base dir is `/app`, newer versions prefer `/data/config.json`; if that file is missing but legacy `/app/config.json` exists, DS2API automatically falls back to the legacy path to avoid post-upgrade config loss.
+The compose template also defaults to `DS2API_CONFIG_PATH=/app/data/config.db` with the named volume `ds2api_data:/app/data` mounted, so deployments avoid both read-only `/app` persistence issues and host bind-mount ownership mismatches.
+Compose no longer mounts or requires `config.json` by default; import or edit config in Admin UI, then saves are written to the SQLite database.
+Compatibility note: when `DS2API_CONFIG_PATH` is unset and runtime base dir is `/app`, newer versions prefer `/data/config.db` or `/app/data/config.db`.
 
 If you want a pinned version instead of `latest`, you can also pull a specific tag directly:
 
@@ -197,10 +198,10 @@ This repo includes a `zeabur.yaml` template for one-click deployment on Zeabur:
 Notes:
 
 - **Port**: DS2API listens on `5001` by default; the template sets `PORT=5001`.
-- **Persistent config**: the template mounts `/data` and sets `DS2API_CONFIG_PATH=/data/config.json`. On a fresh volume, DS2API starts with an empty file-backed config; after importing config in Admin UI, it will be written and persisted to this path.
+- **Persistent config**: the template mounts `/data` and sets `DS2API_CONFIG_PATH=/data/config.db`. On a fresh volume, DS2API starts with an empty database-backed config; after importing config in Admin UI, it will be written and persisted to this path.
 - **`open /app/config.json: permission denied`**: this means the instance is trying to persist runtime tokens to a read-only path (commonly `/app` inside the image).  
   Recommended handling:
-  1. Set a writable path explicitly: `DS2API_CONFIG_PATH=/data/config.json` (and mount a persistent volume at `/data`);
+  1. Set a writable path explicitly: `DS2API_CONFIG_PATH=/data/config.db` (and mount a persistent volume at `/data`);
   2. If you bootstrap with `DS2API_CONFIG_JSON` and do not need runtime writeback, keep env-backed mode (`DS2API_ENV_WRITEBACK` disabled);
   3. In current versions, login/session tests continue even if persistence fails; Admin API returns a warning that token persistence failed and token is memory-only until restart.
 - **Build version**: Zeabur / regular `docker build` does not require `BUILD_VERSION` by default. The image prefers that build arg when provided, and automatically falls back to the repo-root `VERSION` file when it is absent.
@@ -221,18 +222,18 @@ If you do not want to use the `zeabur.yaml` one-click template, deploy directly 
 | --- | --- | --- |
 | `PORT` | `5001` | Service listen port; keep it aligned with the exposed Zeabur HTTP port. |
 | `DS2API_ADMIN_KEY` | Strong random string | Required admin login key. |
-| `DS2API_CONFIG_PATH` | `/data/config.json` | Recommended persistent config path. |
+| `DS2API_CONFIG_PATH` | `/data/config.db` | SQLite config database path on the Zeabur persistent volume. |
 | `LOG_LEVEL` | `INFO` | Optional log level. |
 | `DS2API_CONFIG_JSON` | Raw JSON or Base64 JSON | Optional config bootstrap from env. |
-| `DS2API_ENV_WRITEBACK` | `1` | Optional; enable only when using `DS2API_CONFIG_JSON` and you want the initial config written to `/data/config.json`. |
+| `DS2API_ENV_WRITEBACK` | `1` | Optional; enable only when using `DS2API_CONFIG_JSON` and you want the initial config written to `DS2API_CONFIG_PATH`. |
 
 7. Expose HTTP port `5001`. The health check path can be `/healthz`.
-8. After deployment, open `/admin`, login with `DS2API_ADMIN_KEY`, then import or edit config in Admin UI. A fresh volume does not need `/data/config.json` up front; the service boots first and creates the file on the first save.
+8. After deployment, open `/admin`, login with `DS2API_ADMIN_KEY`, then import or edit config in Admin UI. A fresh volume does not need `/data/config.db` up front; the service boots first and creates the file on the first save.
 
 Troubleshooting:
 
-- **Startup log says `open /data/config.json: no such file or directory`**: make sure you deployed a version that includes the fresh-volume bootstrap fix, then redeploy the latest code.
-- **`open /app/config.json: permission denied`**: the config path still points at the read-only image directory; mount `/data` and set `DS2API_CONFIG_PATH=/data/config.json`.
+- **Startup log says `read /data/config.json: is a directory` or `open /data/config.json: no such file or directory`**: the deployment is still using the old single-file mount. Remove the host-side `config.json` directory, update to the new Compose file, and recreate the container.
+- **`open /app/config.json: permission denied`**: the config path still points at the read-only image directory; mount `/data` and set `DS2API_CONFIG_PATH=/data/config.db`.
 - **Config disappears after restart**: check that the `/data` persistent volume is mounted on this service. If you use `DS2API_CONFIG_JSON` but want Admin UI saves persisted, enable `DS2API_ENV_WRITEBACK=1`.
 
 References: Zeabur's official [GitHub/Git integration](https://zeabur.com/docs/en-US/deploy/github), [Dockerfile deployment](https://zeabur.com/docs/en-US/deploy/dockerfile), and [Volumes](https://zeabur.com/docs/data-management/volumes) docs.

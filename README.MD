@@ -213,18 +213,19 @@ Gemini 适配器将模型名通过 `model_aliases` 或内置精确 alias 映射�
 3. **Vercel 部署**：适合已有 Vercel 环境且接受其平台约束的场景。
 4. **本地源码运行 / 自行编译**：适合开发、调试或需要自行修改代码的场景。
 
-### 通用第一步（所有部署方式）
+### 配置准备（按部署方式选择）
 
-把 `config.json` 作为唯一配置源（推荐做法）：
+本地源码运行、Release 二进制或 systemd 部署可以使用 `config.json`：
 
 ```bash
 cp config.example.json config.json
 # 编辑 config.json
 ```
 
-后续部署建议：
+部署建议：
 - 本地运行：直接读取 `config.json`
-- Docker / Vercel：由 `config.json` 生成 `DS2API_CONFIG_JSON`（Base64）注入环境变量，也可以直接写原始 JSON
+- Docker Compose：默认不需要 `config.json`，配置会保存到 SQLite 数据库
+- Vercel：可由 `config.json` 生成 `DS2API_CONFIG_JSON`（Base64）注入环境变量，也可以直接写原始 JSON
 
 WebUI 管理台里的“全量配置模板”也直接复用同一份 `config.example.json`，所以更新示例文件后，前端模板会自动保持一致。
 
@@ -244,9 +245,8 @@ cp config.example.json config.json
 ### 方式二：Docker 运行
 
 ```bash
-# 1. 准备环境变量和配置文件
+# 1. 准备环境变量
 cp .env.example .env
-cp config.example.json config.json
 
 # 2. 编辑 .env（至少设置 DS2API_ADMIN_KEY；如需修改宿主机端口，可额外设置 DS2API_HOST_PORT）
 #    DS2API_ADMIN_KEY=请替换为强密码
@@ -259,8 +259,7 @@ docker-compose logs -f
 ```
 
 默认 `docker-compose.yml` 会把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
-同时默认把 `./config.json` 挂载到容器 `/data/config.json`，并设置 `DS2API_CONFIG_PATH=/data/config.json`，用于避免 `/app` 只读导致运行时 token 持久化失败。
-镜像会预创建 `/data` 并授权给非 root 的 `ds2api` 用户；如果使用单文件 bind mount，请确保宿主机 `config.json` 对容器用户可读写，例如 `chmod 644 config.json`。
+同时默认把命名卷 `ds2api_data` 挂载到容器 `/app/data`，并设置 `DS2API_CONFIG_PATH=/app/data/config.db`，配置和运行时 token 会持久化到 SQLite 数据库；Compose 默认不再挂载或需要 `config.json`。
 
 更新镜像：`docker-compose up -d --build`
 
@@ -268,11 +267,11 @@ docker-compose logs -f
 
 1. 点击上方 “Deploy on Zeabur” 按钮，一键部署。
 2. 部署完成后访问 `/admin`，使用 Zeabur 环境变量/模板指引中的 `DS2API_ADMIN_KEY` 登录。
-3. 在管理台导入/编辑配置（会写入并持久化到 `/data/config.json`）。
+3. 在管理台导入/编辑配置（会写入并持久化到 `/data/config.db`）。
 
-Zeabur 首次空卷启动时可以没有 `/data/config.json`；DS2API 会先使用空的文件模式配置启动，并在管理台首次保存时创建该文件。
+Zeabur 首次空卷启动时可以没有 `/data/config.db`；DS2API 会先使用空的数据库配置启动，并在管理台首次保存时创建该文件。
 
-不依赖模板手动部署时，在 Zeabur 中选择 GitHub 仓库服务，Root Directory 保持 `/`，使用仓库根目录 `Dockerfile` 构建；添加持久卷 `/data`，设置 `PORT=5001`、`DS2API_ADMIN_KEY=你的强密钥`、`DS2API_CONFIG_PATH=/data/config.json`，然后暴露 HTTP 端口 `5001`。更完整步骤见 [docs/DEPLOY.md](docs/DEPLOY.md#不使用模板手动部署)。
+不依赖模板手动部署时，在 Zeabur 中选择 GitHub 仓库服务，Root Directory 保持 `/`，使用仓库根目录 `Dockerfile` 构建；添加持久卷 `/data`，设置 `PORT=5001`、`DS2API_ADMIN_KEY=你的强密钥`、`DS2API_CONFIG_PATH=/data/config.db`，然后暴露 HTTP 端口 `5001`。更完整步骤见 [docs/DEPLOY.md](docs/DEPLOY.md#不使用模板手动部署)。
 
 说明：Zeabur 使用仓库内 `Dockerfile` 直接构建时，不需要额外传入 `BUILD_VERSION`；镜像会优先读取该构建参数，未提供时自动回退到仓库根目录的 `VERSION` 文件。
 

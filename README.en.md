@@ -202,9 +202,9 @@ Recommended order when choosing a deployment method:
 3. **Vercel deployment**: suitable if you already use Vercel and accept its platform constraints.
 4. **Run from source / build locally**: suitable for development, debugging, or when you need to modify the code yourself.
 
-### Universal First Step (all deployment modes)
+### Prepare Configuration By Deployment Mode
 
-Use `config.json` as the single source of truth (recommended):
+Local source runs, release binaries, and systemd deployments can use `config.json`:
 
 ```bash
 cp config.example.json config.json
@@ -213,7 +213,8 @@ cp config.example.json config.json
 
 Recommended per deployment mode:
 - Local run: read `config.json` directly
-- Docker / Vercel: generate Base64 from `config.json` and inject as `DS2API_CONFIG_JSON`, or paste raw JSON directly
+- Docker Compose: no `config.json` is needed by default; config is stored in the SQLite database
+- Vercel: generate Base64 from `config.json` and inject as `DS2API_CONFIG_JSON`, or paste raw JSON directly
 
 The WebUI admin panel’s “Full configuration template” is loaded from the same `config.example.json`, so updating that file keeps the frontend template in sync.
 
@@ -239,16 +240,15 @@ docker pull ghcr.io/cjackhwang/ds2api:latest
 # Or run a pinned version
 # docker pull ghcr.io/cjackhwang/ds2api:v3.0.0
 
-# Prepare env file and config file
+# Prepare env file
 cp .env.example .env
-cp config.example.json config.json
 
 # Start with compose
 docker-compose up -d
 ```
 
 The default `docker-compose.yml` uses `ghcr.io/cjackhwang/ds2api:latest` and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
-It also mounts `./config.json` to `/data/config.json` and sets `DS2API_CONFIG_PATH=/data/config.json` by default, which avoids runtime token persistence failures caused by read-only `/app`.
+It also mounts the named volume `ds2api_data` to `/app/data` and sets `DS2API_CONFIG_PATH=/app/data/config.db` by default. Config and runtime tokens are persisted in the SQLite database; Compose no longer mounts or requires `config.json` by default.
 
 Rebuild after updates: `docker-compose up -d --build`
 
@@ -256,11 +256,11 @@ Rebuild after updates: `docker-compose up -d --build`
 
 1. Click the “Deploy on Zeabur” button above to deploy.
 2. After deployment, open `/admin` and login with `DS2API_ADMIN_KEY` shown in Zeabur env/template instructions.
-3. Import / edit config in Admin UI (it will be written and persisted to `/data/config.json`).
+3. Import / edit config in Admin UI (it will be written and persisted to `/data/config.db`).
 
-Fresh Zeabur volumes can start without `/data/config.json`; DS2API will boot with an empty file-backed config and create the file on the first Admin UI save.
+Fresh Zeabur volumes can start without `/data/config.db`; DS2API will boot with an empty database-backed config and create the file on the first Admin UI save.
 
-For manual deployment without the template, create a Zeabur GitHub service, keep Root Directory as `/`, build with the repo-root `Dockerfile`, mount a persistent volume at `/data`, set `PORT=5001`, `DS2API_ADMIN_KEY=your-strong-secret`, and `DS2API_CONFIG_PATH=/data/config.json`, then expose HTTP port `5001`. See [docs/DEPLOY.en.md](docs/DEPLOY.en.md#manual-deployment-without-the-template) for the full guide.
+For manual deployment without the template, create a Zeabur GitHub service, keep Root Directory as `/`, build with the repo-root `Dockerfile`, mount a persistent volume at `/data`, set `PORT=5001`, `DS2API_ADMIN_KEY=your-strong-secret`, and `DS2API_CONFIG_PATH=/data/config.db`, then expose HTTP port `5001`. See [docs/DEPLOY.en.md](docs/DEPLOY.en.md#manual-deployment-without-the-template) for the full guide.
 
 Note: when Zeabur builds directly from the repo `Dockerfile`, you do not need to pass `BUILD_VERSION`. The image prefers that build arg when provided, and automatically falls back to the repo-root `VERSION` file when it is absent.
 
