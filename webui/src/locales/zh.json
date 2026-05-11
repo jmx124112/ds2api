@@ -444,13 +444,21 @@
     "login": {
         "welcome": "欢迎回来",
         "subtitle": "请输入管理员密钥以继续",
+        "setupSubtitle": "创建管理员密码以完成初始化",
         "adminKeyLabel": "管理员密钥",
         "adminKeyPlaceholder": "输入您的管理员密钥...",
+        "newPasswordLabel": "新的管理员密码",
+        "newPasswordPlaceholder": "输入新的管理员密码...",
+        "confirmPasswordLabel": "确认密码",
+        "confirmPasswordPlaceholder": "再次输入相同密码...",
         "rememberSession": "记住登录状态",
         "signIn": "登录",
+        "setupAction": "完成初始化",
         "secureConnection": "安全连接",
         "adminPortal": "DS2API 管理员门户",
         "signInFailed": "登录失败",
+        "setupFailed": "初始化失败",
+        "setupPasswordMismatch": "两次输入的密码不一致",
         "networkError": "网络错误: {error}"
     },
     "vercel": {

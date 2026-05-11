@@ -444,13 +444,21 @@
     "login": {
         "welcome": "Welcome back",
         "subtitle": "Enter your admin key to continue",
+        "setupSubtitle": "Create an admin password to finish setup",
         "adminKeyLabel": "Admin key",
         "adminKeyPlaceholder": "Enter your admin key...",
+        "newPasswordLabel": "New admin password",
+        "newPasswordPlaceholder": "Enter a new admin password...",
+        "confirmPasswordLabel": "Confirm password",
+        "confirmPasswordPlaceholder": "Enter the same password again...",
         "rememberSession": "Remember this session",
         "signIn": "Sign in",
+        "setupAction": "Finish setup",
         "secureConnection": "Secure connection",
         "adminPortal": "DS2API admin portal",
         "signInFailed": "Sign-in failed.",
+        "setupFailed": "Setup failed.",
+        "setupPasswordMismatch": "The two passwords do not match.",
         "networkError": "Network error: {error}"
     },
     "vercel": {
