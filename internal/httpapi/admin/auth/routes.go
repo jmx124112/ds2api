@@ -11,7 +11,9 @@ func (h *Handler) RequireAdmin(next http.Handler) http.Handler {
 }
 
 func RegisterPublicRoutes(r chi.Router, h *Handler) {
+	r.Get("/bootstrap", h.bootstrap)
 	r.Post("/login", h.login)
+	r.Post("/setup", h.setup)
 	r.Get("/verify", h.verify)
 }
 

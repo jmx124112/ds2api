@@ -4,6 +4,18 @@ import clsx from 'clsx'
 import { useI18n } from '../i18n'
 import LanguageToggle from './LanguageToggle'
 
+const readJSONResponse = async (res) => {
+    const text = await res.text()
+    if (!text.trim()) return {}
+    try {
+        return JSON.parse(text)
+    } catch {
+        return {
+            detail: `Unexpected non-JSON response from server (status: ${res.status}).`,
+        }
+    }
+}
+
 export default function Login({ onLogin, onMessage }) {
     const { t } = useI18n()
     const [adminKey, setAdminKey] = useState('')
@@ -18,7 +30,7 @@ export default function Login({ onLogin, onMessage }) {
         const loadBootstrap = async () => {
             try {
                 const res = await fetch('/admin/bootstrap')
-                const data = await res.json()
+                const data = await readJSONResponse(res)
                 if (!cancelled) {
                     setSetupRequired(Boolean(data?.setup_required))
                 }
@@ -53,7 +65,7 @@ export default function Login({ onLogin, onMessage }) {
                 body: JSON.stringify(setupRequired ? { password: adminKey } : { admin_key: adminKey }),
             })
 
-            const data = await res.json()
+            const data = await readJSONResponse(res)
 
             if (res.ok && data.success) {
                 const storage = remember ? localStorage : sessionStorage
