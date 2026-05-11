@@ -131,8 +131,8 @@ docker-compose logs -f
 ```
 
 The default `docker-compose.yml` directly uses `ghcr.io/cjackhwang/ds2api:latest` and maps host port `6011` to container port `5001`. If you want `5001` exposed directly, set `DS2API_HOST_PORT=5001` (or adjust the `ports` mapping).
-The compose template also defaults to `DS2API_CONFIG_PATH=/app/data/config.db` with the named volume `ds2api_data:/app/data` mounted, so deployments avoid both read-only `/app` persistence issues and host bind-mount ownership mismatches.
-Compose no longer mounts or requires `config.json` by default; import or edit config in Admin UI, then saves are written to the SQLite database.
+The compose template also defaults to `DS2API_CONFIG_PATH=/app/data/config.db` with the host directory `./data:/app/data` mounted, so config, server-side chat history, and runtime tokens persist in local SQLite databases. When upgrading an older deployment, existing `data/config.db` or `data/chat_history.db` files in the repository directory will continue to be used after the container is recreated.
+Compose no longer mounts or requires `config.json` by default; import or edit config in Admin UI, then saves are written to the SQLite database. If SQLite reports a read-only database, make sure the `data/` directory is writable by the `ds2api` user inside the container.
 Compatibility note: when `DS2API_CONFIG_PATH` is unset and runtime base dir is `/app`, newer versions prefer `/data/config.db` or `/app/data/config.db`.
 
 If you want a pinned version instead of `latest`, you can also pull a specific tag directly:

@@ -259,7 +259,7 @@ docker-compose logs -f
 ```
 
 默认 `docker-compose.yml` 会把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
-同时默认把命名卷 `ds2api_data` 挂载到容器 `/app/data`，并设置 `DS2API_CONFIG_PATH=/app/data/config.db`，配置和运行时 token 会持久化到 SQLite 数据库；Compose 默认不再挂载或需要 `config.json`。
+同时默认把宿主机目录 `./data` 挂载到容器 `/app/data`，并设置 `DS2API_CONFIG_PATH=/app/data/config.db`，配置、服务器端对话记录和运行时 token 会持久化到本地 SQLite 数据库；Compose 默认不再挂载或需要 `config.json`。如果从旧版本升级且已有 `data/config.db` 或 `data/chat_history.db`，重建容器后会继续使用这些文件。
 
 更新镜像：`docker-compose up -d --build`
 

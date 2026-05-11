@@ -131,8 +131,8 @@ docker-compose logs -f
 ```
 
 默认 `docker-compose.yml` 直接使用 `ghcr.io/cjackhwang/ds2api:latest`，并把宿主机 `6011` 映射到容器内的 `5001`。如果你希望直接对外暴露 `5001`，请设置 `DS2API_HOST_PORT=5001`（或者手动调整 `ports` 配置）。
-Compose 模板还会默认设置 `DS2API_CONFIG_PATH=/app/data/config.db` 并挂载命名卷 `ds2api_data:/app/data`，优先避免 `/app` 只读和宿主机 bind mount 权限不一致带来的配置持久化问题。
-Compose 默认不再挂载或需要 `config.json`；请在管理台导入或编辑配置，保存后会写入 SQLite 数据库。
+Compose 模板还会默认设置 `DS2API_CONFIG_PATH=/app/data/config.db` 并挂载宿主机目录 `./data:/app/data`，配置、服务器端对话记录和运行时 token 会持久化到本地 SQLite 数据库。升级旧版本时，如果仓库目录下已经有 `data/config.db` 或 `data/chat_history.db`，重建容器后会继续使用这些文件。
+Compose 默认不再挂载或需要 `config.json`；请在管理台导入或编辑配置，保存后会写入 SQLite 数据库。若遇到 SQLite 只读错误，请确认 `data/` 目录归容器内 `ds2api` 用户可写。
 兼容说明：若未设置 `DS2API_CONFIG_PATH` 且运行目录是 `/app`，新版本会优先使用 `/data/config.db` 或 `/app/data/config.db`。
 
 如需固定版本，也可以直接拉取指定 tag：
